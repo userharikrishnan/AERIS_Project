@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+pydantic
+sqlalchemy
+aiofiles
+scikit-learn
+torch
+torchvision
+torchaudio
+pyautogui
+pytesseract
