@@ -55,6 +55,30 @@ class Planner:
         if t == "WEB_NAVIGATE":
             return [{"step": 1, "action": "web_navigate", "params": e, "priority": 0.8}]
 
+        if t == "WEB_SCRAPE":
+            plan = [{"step": 1, "action": "web_scrape", "params": e, "priority": 0.85}]
+            # Auto-chain report if user implied saving
+            raw_text = getattr(intent, 'raw_text', '')
+            if raw_text and any(w in raw_text.lower() for w in ['save', 'report', 'store', 'write', 'file', 'generate']):
+                plan.append({
+                    "step": 2,
+                    "action": "generate_report",
+                    "params": {"format": "md", "save_path": "desktop", "title": "Scraped Data"},
+                    "priority": 0.75
+                })
+            return plan
+
+        if t == "GENERATE_REPORT":
+            return [{"step": 1, "action": "generate_report", "params": e, "priority": 0.8}]
+
+        if t == "SYSTEM_INFO":
+            return [{"step": 1, "action": "system_info", "params": e, "priority": 0.7}]
+
+        if t == "SCREENSHOT":
+            return [{"step": 1, "action": "screenshot", "params": e, "priority": 0.75}]
+
+
+
         # -------------------------
         # File system
         # -------------------------

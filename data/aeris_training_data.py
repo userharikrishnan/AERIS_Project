@@ -937,6 +937,221 @@ ADVANCED_PAIRS = [
 TRAINING_PAIRS.extend(ADVANCED_PAIRS)
 
 # =========================================================
+# 16. WEB SCRAPING (60+ pairs)
+# =========================================================
+
+SCRAPE_PAIRS = [
+    # Standard scrape
+    ("scrape this website", "Extracting content from the website now"),
+    ("extract content from the page", "Extracting all content from the page"),
+    ("scrape this url", "Scraping content from the URL"),
+    ("get all text from this site", "Fetching all text from the site"),
+    ("crawl this page", "Crawling and extracting page content"),
+    ("scrape the article", "Reading and extracting article content"),
+    ("extract data from the web page", "Extracting structured data from the page"),
+    ("pull the content from that site", "Pulling content from the site now"),
+    ("get the headlines from hacker news", "Fetching top headlines from Hacker News"),
+    ("extract all links from the page", "Extracting all hyperlinks from the page"),
+    ("parse the html and extract tables", "Parsing HTML and extracting table data"),
+    ("extract all headings from the page", "Extracting all headings from the page"),
+    ("get the blog posts from that site", "Fetching blog post listings from the site"),
+    ("scrape stock data from that page", "Scraping financial data from the page"),
+    ("scrape news.ycombinator.com", "Scraping Hacker News for top stories"),
+    ("extract github trending repos", "Extracting trending repositories from GitHub"),
+    ("scrape this for research", "Extracting content for your research"),
+    ("get me the page data", "Fetching page data now"),
+    ("fetch the article text", "Fetching full article text"),
+
+    # With purpose
+    ("scrape this website and save it", "Scraping website content and saving the results"),
+    ("scrape and show me the data", "Scraping the page and displaying the results"),
+    ("extract data from the url and save", "Extracting data and saving to file"),
+    ("get the content for my report", "Extracting content for your report"),
+    ("scrape and generate a report", "Scraping content and generating a report"),
+
+    # Chained commands
+    ("go to hacker news and scrape it", "Navigating to Hacker News and extracting content"),
+    ("open the page and extract the data", "Opening the page and extracting all data"),
+    ("navigate to the url then scrape it", "Navigating to URL and beginning extraction"),
+    ("visit the site and get the content", "Visiting site and extracting content"),
+    ("go to the url and get all the text", "Navigating and extracting all text"),
+
+    # Error handling
+    ("scraping failed", "Scrape failed. Checking if the site is accessible and retrying"),
+    ("could not extract content", "Extraction failed. The page may be protected. Trying alternative method"),
+    ("the site blocked the scraper", "Site appears to block automated access. Trying a different approach"),
+    ("extraction returned no content", "No content extracted. The page may be JavaScript-rendered or empty"),
+    ("scrape returned empty", "Empty result. Retrying with different extraction parameters"),
+
+    # Polite/casual
+    ("can you scrape this for me", "Of course, scraping the page for you now"),
+    ("please extract the content", "Extracting page content as requested"),
+    ("i need to scrape this url", "Starting extraction from the URL now"),
+    ("scrape it please", "Scraping now"),
+    ("extract that", "Extracting content now"),
+    ("pull the data", "Pulling data from the page"),
+    ("harvest the page", "Harvesting page content now"),
+    ("get what is on the page", "Fetching all content from the page"),
+    ("rip the content from the site", "Extracting all content from the site"),
+    ("grab the text from that website", "Grabbing text content from the website"),
+
+    # Result responses
+    ("what did you scrape", "Here is what I extracted: title, headings, paragraphs, and links"),
+    ("what was on the page", "The page contained: title, headings, body text, and external links"),
+    ("show me the scraped content", "Here is the extracted content from the page"),
+    ("give me the extracted data", "Here is the extracted data. You can save it as a report"),
+]
+
+TRAINING_PAIRS.extend(SCRAPE_PAIRS)
+
+# =========================================================
+# 17. REPORT GENERATION (60+ pairs)
+# =========================================================
+
+REPORT_PAIRS = [
+    # Standard generate
+    ("generate a report", "Generating report now"),
+    ("create a pdf report", "Creating PDF report"),
+    ("make a markdown report", "Creating Markdown report"),
+    ("write a report of the data", "Writing a report from the data"),
+    ("produce a report with the findings", "Producing a report with all findings"),
+    ("generate an html report", "Generating HTML report"),
+    ("create a text report", "Creating plain text report"),
+    ("save as pdf", "Saving as PDF now"),
+    ("export as markdown", "Exporting as Markdown file"),
+    ("generate a weekly report", "Generating weekly report"),
+    ("build a report file", "Building report file"),
+    ("produce a document with the data", "Producing a document from the data"),
+    ("write up a report of the analysis", "Writing up the analysis report"),
+    ("generate report and save to desktop", "Generating report and saving to your Desktop"),
+    ("create a report of the scraped data", "Creating report from scraped content"),
+    ("make a pdf of the results", "Generating PDF from results"),
+    ("export data to file", "Exporting data to file now"),
+    ("generate a report now", "Report generation started"),
+    ("write results to a file please", "Writing results to file"),
+    ("summarize and write a report", "Summarizing data and writing report"),
+    ("turn the data into a report", "Converting data into a formatted report"),
+    ("make a document from the results", "Creating document from your results"),
+    ("document the scraped data", "Documenting the scraped content"),
+    ("log results to a file", "Logging results to file"),
+    ("generate report from scraped data", "Generating report from extracted data"),
+    ("write a research report", "Writing research report"),
+    ("create a formal report", "Creating formal report"),
+    ("make a detailed report", "Creating detailed report"),
+    ("output a pdf report", "Outputting PDF report"),
+    ("save findings to markdown file", "Saving findings to Markdown file"),
+    ("produce a summary document", "Producing summary document"),
+
+    # With paths
+    ("save report to c drive", "Saving report to C drive"),
+    ("save report on my desktop", "Saving report to Desktop"),
+    ("save report to documents folder", "Saving report to Documents"),
+    ("put the report in a new folder", "Creating new folder and saving report"),
+    ("save report to downloads", "Saving report to Downloads folder"),
+
+    # Chained (after scraping)
+    ("scrape it then generate a report", "Scraping content and generating report"),
+    ("get the data and write a report", "Extracting data and writing report"),
+    ("extract the content and save as pdf", "Extracting content and saving as PDF"),
+    ("crawl and then make a markdown doc", "Crawling page and creating Markdown document"),
+
+    # Casual/conversational
+    ("make a doc out of this", "Creating document from this content"),
+    ("put this in a document", "Putting content into a document"),
+    ("write this up", "Writing this up as a document"),
+    ("document this", "Documenting this now"),
+    ("create a file with this data", "Creating file with this data"),
+    ("turn this into a report", "Converting to report format"),
+
+    # Error handling
+    ("report generation failed", "Report generation failed. Checking write permissions and retrying"),
+    ("could not save the report", "Cannot save. Checking if the destination folder exists and then retrying"),
+    ("pdf failed", "PDF generation failed. Trying Markdown fallback instead"),
+    ("cannot write to that location", "Access denied to that location. Saving to Desktop instead"),
+]
+
+TRAINING_PAIRS.extend(REPORT_PAIRS)
+
+# =========================================================
+# 18. SYSTEM INFO & SCREENSHOT (50+ pairs)
+# =========================================================
+
+SYSINFO_PAIRS = [
+    # CPU
+    ("what is my cpu usage", "Checking CPU usage"),
+    ("cpu usage", "Your CPU usage is currently being measured"),
+    ("cpu stats", "Pulling CPU statistics now"),
+    ("how much cpu am i using", "Checking current CPU utilization"),
+    ("check cpu", "Checking CPU status"),
+    ("cpu temperature", "Checking CPU temperature"),
+
+    # RAM
+    ("how much ram do i have", "Checking available RAM"),
+    ("ram usage", "Checking RAM usage"),
+    ("memory usage", "Checking current memory usage"),
+    ("how much memory is being used", "Measuring current memory consumption"),
+    ("check memory", "Checking memory status"),
+    ("how much ram is available", "Checking available RAM"),
+
+    # Disk
+    ("disk space", "Checking disk space"),
+    ("how much disk space do i have", "Checking available disk space"),
+    ("hard drive space", "Checking hard drive capacity and usage"),
+    ("check disk", "Checking disk status"),
+    ("how much free space", "Checking free storage space"),
+    ("disk health", "Checking disk health status"),
+
+    # Battery
+    ("battery level", "Checking battery level"),
+    ("battery status", "Checking battery status"),
+    ("how much battery do i have", "Checking current battery percentage"),
+    ("is battery charging", "Checking charging status"),
+    ("power status", "Checking power and battery status"),
+
+    # General
+    ("system info", "Gathering full system information"),
+    ("system information", "Pulling system details now"),
+    ("system stats", "Compiling system statistics"),
+    ("computer specs", "Retrieving computer specifications"),
+    ("what are my specs", "Checking your hardware specifications"),
+    ("show system info", "Displaying system information"),
+    ("give me system info", "Here is your system information"),
+    ("system status", "Checking all system components"),
+    ("hardware info", "Retrieving hardware information"),
+    ("pc info", "Pulling PC information"),
+    ("machine info", "Gathering machine details"),
+    ("full system report", "Generating full system report"),
+    ("quick system check", "Running quick system check"),
+    ("is my computer ok", "Running diagnostics to check your computer"),
+    ("how is my system running", "Checking system performance"),
+
+    # OS
+    ("what os am i running", "Checking operating system version"),
+    ("windows version", "Checking Windows version"),
+    ("os version", "Checking OS version"),
+
+    # Screenshot
+    ("take a screenshot", "Taking screenshot now"),
+    ("screenshot", "Capturing your screen"),
+    ("capture the screen", "Screen captured and saved to AERIS_Screenshots"),
+    ("grab the screen", "Grabbing screenshot now"),
+    ("screen capture", "Capturing screen now"),
+    ("save screenshot", "Saving screenshot to Desktop"),
+    ("take a screenshot and save it", "Taking screenshot and saving to Desktop"),
+    ("screenshot this for records", "Taking screenshot for your records"),
+    ("can you take a screenshot", "Taking screenshot now"),
+    ("snap the screen", "Snapping screenshot"),
+    ("print screen", "Capturing screen"),
+    ("i need a screenshot", "Taking screenshot now"),
+    ("quick screenshot", "Taking quick screenshot"),
+    ("grab this screen for later", "Screenshot saved for later reference"),
+]
+
+TRAINING_PAIRS.extend(SYSINFO_PAIRS)
+
+
+
+# =========================================================
 # VALIDATION & STATISTICS
 # =========================================================
 

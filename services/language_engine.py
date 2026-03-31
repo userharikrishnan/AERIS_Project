@@ -1,12 +1,49 @@
 import torch
 import json
 import os
-from models.slm import AerisSLM
+from models.slm import AerisSLM, AerisGRUSLM
 from models.tokenizer import Tokenizer
 
 CHECKPOINT_MODEL      = "checkpoints/aeris_slm.pt"
 CHECKPOINT_MODEL_BEST = "checkpoints/aeris_slm_best.pt"
 CHECKPOINT_TOKENIZER  = "checkpoints/tokenizer.json"
+
+# Jarvis-style response templates (fallback when model not confident)
+INTENT_RESPONSES = {
+    "OPEN_APP":        "Opening {app} for you now.",
+    "CLOSE_APP":       "Closing {app}.",
+    "WEB_SEARCH":      "Searching the web for '{query}'.",
+    "WEB_NAVIGATE":    "Navigating to {url}.",
+    "WEB_SCRAPE":      "Extracting content from {url}. Stand by.",
+    "FILE_READ":       "Reading {filename}.",
+    "FILE_WRITE":      "Writing to {filename}.",
+    "FILE_DELETE":     "Deleting {filename}. Confirmed — proceeding.",
+    "FILE_LIST":       "Listing directory contents.",
+    "MEMORY_STORE":    "Understood. I've stored that in memory.",
+    "MEMORY_RECALL":   "Let me check my memory for that.",
+    "MEMORY_FORGET":   "Done. I've cleared that from memory.",
+    "GOAL_CREATE":     "Goal created. I'll track that for you.",
+    "GOAL_LIST":       "Here are your active goals.",
+    "GOAL_COMPLETE":   "Marking that goal as complete. Well done.",
+    "GENERATE_REPORT": "Generating your report now. One moment.",
+    "SCREENSHOT":      "Capturing your screen now.",
+    "SYSTEM_INFO":     "Pulling up your system diagnostics.",
+    "LIST_WINDOWS":    "Listing all open windows.",
+    "ACTIVE_WINDOW":   "Checking the active window.",
+    "READ_SCREEN":     "Reading screen content.",
+    "VISION_QUERY":    "Analyzing the current display.",
+    "REASONING":       "Let me think through that for you.",
+    "IDENTITY_QUERY":  (
+        "I am AERIS — Autonomous Execution and Reasoning Intelligence System. "
+        "I can open applications, search and navigate the web, scrape sites, "
+        "generate reports, take screenshots, manage your files, remember information, "
+        "and execute complex multi-step tasks — all on your command. How may I assist?"
+    ),
+    "ROLLBACK":        "Rolling back the last action.",
+    "CONFIRM":         "Confirmed. Proceeding.",
+    "CANCEL":          "Understood. Action cancelled.",
+    "CHAT":            "Of course. How can I help you today?",
+}
 
 
 class LanguageEngine:
@@ -59,18 +96,38 @@ class LanguageEngine:
 
         if checkpoint_to_load:
             vocab_size = len(self.tokenizer.word2id)
-            self.model = AerisSLM(
-                vocab_size=vocab_size,
-                embed_dim=128,
-                hidden_dim=256
-            )
-            self.model.load_state_dict(
-                torch.load(checkpoint_to_load, map_location="cpu")
-            )
-            self.model.eval()
-            print(f"[LanguageEngine] Model loaded from {checkpoint_to_load}")
+            # Try legacy GRU checkpoint first (existing trained model)
+            try:
+                self.model = AerisGRUSLM(
+                    vocab_size=vocab_size,
+                    embed_dim=128,
+                    hidden_dim=256
+                )
+                state = torch.load(checkpoint_to_load, map_location="cpu", weights_only=True)
+                self.model.load_state_dict(state)
+                self.model.eval()
+                self._model_type = "gru"
+                print(f"[LanguageEngine] ✓ Legacy GRU model loaded from {checkpoint_to_load}")
+            except Exception as gru_e:
+                # Try new Transformer architecture
+                try:
+                    self.model = AerisSLM(
+                        vocab_size=vocab_size,
+                        embed_dim=256,
+                        num_layers=4,
+                        num_heads=4
+                    )
+                    state = torch.load(checkpoint_to_load, map_location="cpu", weights_only=True)
+                    self.model.load_state_dict(state)
+                    self.model.eval()
+                    self._model_type = "transformer"
+                    print(f"[LanguageEngine] ✓ Transformer SLM loaded from {checkpoint_to_load}")
+                except Exception as t_e:
+                    print(f"[LanguageEngine] ⚠️ Could not load checkpoint ({gru_e} / {t_e}) — using template responses only")
+                    self._model_type = "template_only"
         else:
-            print("[LanguageEngine] WARNING: No model checkpoint found, using random weights")
+            print("[LanguageEngine] ⚠️ No checkpoint found — using template responses only")
+            self._model_type = "template_only"
 
     def _sample_token(self, logits, top_k=20, top_p=0.9):
         probs = torch.softmax(logits, dim=-1)
@@ -93,25 +150,27 @@ class LanguageEngine:
 
         return filtered_indices[torch.multinomial(filtered_probs, 1)]
 
-    def _template_response(self, intent_type):
+    def _template_response(self, intent_type: str, entities: dict = None) -> str:
         """
-        Fallback templates for low-confidence scenarios.
+        Jarvis-style template responses with entity interpolation.
         """
-        templates = {
-            "OPEN_APP": "Opening application.",
-            "WEB_SEARCH": "Searching the web.",
-            "WEB_NAVIGATE": "Navigating to website.",
-            "FILE_READ": "Reading file.",
-            "FILE_WRITE": "Writing file.",
-        }
-        return templates.get(intent_type, "Processing request.")
+        template = INTENT_RESPONSES.get(intent_type, "Processing your request.")
+        if entities:
+            try:
+                # Fill in known entity slots
+                fill = {k: v for k, v in entities.items() if not k.startswith("_")}
+                return template.format(**fill)
+            except (KeyError, IndexError):
+                pass
+        return template
 
     def generate_from_text(
         self,
         original_text: str,
         intent_type: str = "",
         confidence: float = 1.0,
-        max_tokens: int = 12
+        max_tokens: int = 50,
+        entities: dict = None
     ):
         """
         Primary generation method.
@@ -121,9 +180,9 @@ class LanguageEngine:
         if not original_text:
             return "Ready."
 
-        # Fallback to template for low confidence
-        if confidence < 0.4 and intent_type:
-            return self._template_response(intent_type)
+        # Fallback to template for low confidence or template-only mode
+        if getattr(self, '_model_type', 'gru') == 'template_only' or (confidence < 0.35 and intent_type):
+            return self._template_response(intent_type, entities)
 
         # Add structured prompt with intent context
         prompt = f"[INTENT:{intent_type}] {original_text.lower()}" if intent_type else original_text.lower()

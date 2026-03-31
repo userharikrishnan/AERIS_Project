@@ -1,0 +1,9 @@
+{
+  "aeris_version": "0.2.0",
+  "global_model_version": "0.1.0",
+  "personal_model_version": "0.1.0",
+  "last_updated": null,
+  "update_history": [],
+  "checksums": {},
+  "notes": "Drop .zip update packages into the updates/ folder and call POST /updates/apply to upgrade models."
+}

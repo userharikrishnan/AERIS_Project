@@ -1102,6 +1102,429 @@ INTENT_TRAINING_DATA.extend([(t, "CHAT") for t in CHAT_AMBIGUOUS])
 INTENT_TRAINING_DATA.extend([(t, "CHAT") for t in CHAT_EDGE_CASES])
 
 # =========================================================
+# 28. WEB_SCRAPE (Target: 800+ examples)
+# =========================================================
+
+SCRAPE_TARGETS = [
+    "this website", "this page", "the website", "the page",
+    "that url", "this url", "the link", "that link",
+    "this article", "the article", "that blog post", "the blog",
+    "wikipedia.org", "github.com", "news.ycombinator.com",
+    "reddit.com", "medium.com", "dev.to", "techcrunch.com",
+    "the news site", "the docs page", "the api documentation",
+    "product hunt", "stackoverflow.com", "that forum thread",
+    "the pricing page", "the landing page", "the job listing",
+    "amazon product page", "the review page", "the search results",
+    "that research paper", "the blog post", "the tutorial",
+    "the portfolio site", "the company website", "the store page",
+    "the sports scores page", "the stock ticker page", "the weather page",
+    "hacker news", "the news feed", "the headlines", "the top articles",
+]
+
+SCRAPE_URL_TEMPLATES = [
+    "https://example.com", "https://news.ycombinator.com",
+    "https://github.com/trending", "https://reddit.com/r/python",
+    "that site", "the url i gave you", "this link",
+]
+
+SCRAPE_TEMPLATES = [
+    # Core scrape commands
+    "scrape {}", "extract content from {}", "extract data from {}",
+    "get content from {}", "get data from {}", "fetch content from {}",
+    "pull content from {}", "pull data from {}", "grab data from {}",
+    "crawl {}", "crawl the content of {}", "crawl and extract {}",
+
+    # Parse/analyze web content
+    "parse {}", "parse the html of {}", "parse the content of {}",
+    "extract text from {}", "extract headings from {}", "extract links from {}",
+    "extract tables from {}", "extract images from {}",
+    "extract all text from {}", "extract all data from {}",
+
+    # Read web page
+    "read {}", "read the content of {}", "read the page {}",
+    "read the website {}", "read the article at {}", "read the blog at {}",
+    "read what is on {}", "read the text from {}",
+
+    # Download/collect
+    "download content from {}", "collect data from {}", "harvest data from {}",
+    "mine data from {}", "retrieve content from {}", "retrieve data from {}",
+
+    # Save/get
+    "get the text from {}", "get all text from {}",
+    "get the headlines from {}", "get the links from {}",
+    "get all links from {}", "get the paragraphs from {}",
+
+    # Polite forms
+    "can you scrape {}", "please scrape {}", "could you scrape {}",
+    "please extract content from {}", "can you get the content of {}",
+    "would you scrape {}", "i need you to scrape {}", "extract from {}",
+
+    # Purpose-driven
+    "scrape {} for me", "scrape {} and save it", "scrape {} and show me",
+    "extract data from {} and save", "get content from {} please",
+    "get the data from {} for my report", "pull the content from {} i need it",
+
+    # Compound/chained (important for multi-step planning)
+    "go to {} and scrape it", "open {} and extract the data",
+    "navigate to {} then scrape", "visit {} and get the content",
+    "go to {} get the text", "open {} read and extract",
+
+    # Casual/conversational
+    "scrape that", "scrape this page", "get the content",
+    "extract that", "pull the data", "harvest the page",
+    "get what's on the page", "pull what's on that site",
+    "rip the content from {}", "mirror {}", "copy content from {}",
+]
+
+for target in SCRAPE_TARGETS:
+    for template in SCRAPE_TEMPLATES[:20]:
+        INTENT_TRAINING_DATA.append((template.format(target), "WEB_SCRAPE"))
+
+# High-weight direct examples
+WEB_SCRAPE_DIRECT = [
+    ("scrape the website", "WEB_SCRAPE"),
+    ("extract content from the page", "WEB_SCRAPE"),
+    ("crawl this url", "WEB_SCRAPE"),
+    ("get all the text from this site", "WEB_SCRAPE"),
+    ("read and extract from the article", "WEB_SCRAPE"),
+    ("scrape this url for me", "WEB_SCRAPE"),
+    ("extract data from the web page", "WEB_SCRAPE"),
+    ("pull the content off that site", "WEB_SCRAPE"),
+    ("get the headlines from hacker news", "WEB_SCRAPE"),
+    ("scrape the article and give me the text", "WEB_SCRAPE"),
+    ("extract all links from the page", "WEB_SCRAPE"),
+    ("scrape the product listing", "WEB_SCRAPE"),
+    ("parse the html and extract tables", "WEB_SCRAPE"),
+    ("get the data from that page", "WEB_SCRAPE"),
+    ("fetch and extract the page content", "WEB_SCRAPE"),
+    ("read this page and extract the information", "WEB_SCRAPE"),
+    ("pull down the content of that url", "WEB_SCRAPE"),
+    ("grab the text from that website", "WEB_SCRAPE"),
+    ("scrape that and save the results", "WEB_SCRAPE"),
+    ("get the blog posts from that site", "WEB_SCRAPE"),
+    ("collect the data from that url", "WEB_SCRAPE"),
+    ("retrieve content from the news site", "WEB_SCRAPE"),
+    ("mine the page for data", "WEB_SCRAPE"),
+    ("scrape and store the content", "WEB_SCRAPE"),
+    ("extract text and links from the page", "WEB_SCRAPE"),
+    ("read the web page and get me the text", "WEB_SCRAPE"),
+    ("scrape news.ycombinator.com", "WEB_SCRAPE"),
+    ("extract github trending repos", "WEB_SCRAPE"),
+    ("scrape stock data from that page", "WEB_SCRAPE"),
+    ("get all tables from that url", "WEB_SCRAPE"),
+    ("harvest the content from the page", "WEB_SCRAPE"),
+    ("mirror the content of that site", "WEB_SCRAPE"),
+    ("copy all content from that web page", "WEB_SCRAPE"),
+    ("download webpage content", "WEB_SCRAPE"),
+    ("fetch the article text", "WEB_SCRAPE"),
+    ("read the page and pull the data", "WEB_SCRAPE"),
+    ("parse the site and extract everything", "WEB_SCRAPE"),
+    ("scrape the page content and images", "WEB_SCRAPE"),
+    ("get the job listings off that page", "WEB_SCRAPE"),
+    ("scrape google search results", "WEB_SCRAPE"),
+    ("scrape this for research", "WEB_SCRAPE"),
+    ("get me the page data", "WEB_SCRAPE"),
+    ("extract the main content from URL", "WEB_SCRAPE"),
+    ("web scrape that site", "WEB_SCRAPE"),
+    ("site scraper run it", "WEB_SCRAPE"),
+    ("scrape page now", "WEB_SCRAPE"),
+    ("extract and give me the content", "WEB_SCRAPE"),
+    ("get webpage text", "WEB_SCRAPE"),
+    ("fetch web page content", "WEB_SCRAPE"),
+    ("scrape all headings from the page", "WEB_SCRAPE"),
+    # Typo/noise versions
+    ("scrppe the website", "WEB_SCRAPE"),
+    ("extrct content from page", "WEB_SCRAPE"),
+    ("scrape teh article", "WEB_SCRAPE"),
+    ("get cotent from site", "WEB_SCRAPE"),
+]
+
+INTENT_TRAINING_DATA.extend(WEB_SCRAPE_DIRECT * 6)
+
+# =========================================================
+# 29. GENERATE_REPORT (Target: 700+ examples)
+# =========================================================
+
+REPORT_FORMATS = [
+    "pdf", "markdown", "html", "text", "txt", "word", "doc",
+    "csv", "excel", "json", "xml", "report", "summary", "document",
+]
+
+REPORT_TOPICS = [
+    "the scraped data", "the search results", "the analysis",
+    "the findings", "my research", "the data", "the metrics",
+    "the logs", "system information", "the benchmark results",
+    "website content", "the extracted text", "stock data",
+    "the news headlines", "sales data", "performance data",
+    "the project summary", "the weekly data", "the statistics",
+]
+
+REPORT_TEMPLATES = [
+    # Core generate commands
+    "generate a report", "generate a report of {}",
+    "create a report", "create a report of {}",
+    "make a report", "make a report on {}",
+    "write a report", "write a report about {}",
+    "produce a report", "produce report of {}",
+    "build a report", "put together a report",
+    "draft a report", "draft a report of {}",
+
+    # Format-specific
+    "generate a {} report", "create a {} document",
+    "make a {} file", "write a {} summary",
+    "produce a {} doc", "save as {}",
+    "export as {}", "export to {}",
+    "save report as {}", "generate {} version",
+
+    # Save/store outputs
+    "save the results to a report", "save to report",
+    "export results to a file", "export to pdf",
+    "write results to file", "log results to file",
+    "save report to desktop", "save report to documents",
+    "save report to c drive", "save to a new folder",
+    "output results as file", "dump to file",
+
+    # After scraping
+    "scrape and generate a report", "extract data and write report",
+    "get the data and save it as a report",
+    "scrape {} and generate a report",
+    "extract from {} and save the report",
+
+    # Summarize
+    "summarize the data", "summarize the results",
+    "summarize and save", "write a summary", "make a summary",
+    "create summary document", "generate summary file",
+    "give me a summary and save it", "summary report please",
+
+    # Polite
+    "can you generate a report", "please make a report",
+    "could you create a summary", "would you write a report",
+    "generate a report for me", "make me a report please",
+
+    # Casual
+    "make a doc out of this", "put this in a document",
+    "write this up", "document this", "log this to a file",
+    "create a file with this data", "put the results in a file",
+    "turn this into a report", "convert to report",
+]
+
+for topic in REPORT_TOPICS:
+    for template in REPORT_TEMPLATES[:15]:
+        try:
+            INTENT_TRAINING_DATA.append((template.format(topic), "GENERATE_REPORT"))
+        except (IndexError, KeyError):
+            INTENT_TRAINING_DATA.append((template, "GENERATE_REPORT"))
+
+for fmt in REPORT_FORMATS:
+    for template in REPORT_TEMPLATES[14:25]:
+        try:
+            INTENT_TRAINING_DATA.append((template.format(fmt), "GENERATE_REPORT"))
+        except (IndexError, KeyError):
+            INTENT_TRAINING_DATA.append((template, "GENERATE_REPORT"))
+
+# High-weight direct examples
+GENERATE_REPORT_DIRECT = [
+    ("generate a report", "GENERATE_REPORT"),
+    ("create a pdf report", "GENERATE_REPORT"),
+    ("make a markdown report", "GENERATE_REPORT"),
+    ("write a report of the data", "GENERATE_REPORT"),
+    ("save results to a report file", "GENERATE_REPORT"),
+    ("produce a report with the findings", "GENERATE_REPORT"),
+    ("generate an html report", "GENERATE_REPORT"),
+    ("create a text report", "GENERATE_REPORT"),
+    ("save as pdf", "GENERATE_REPORT"),
+    ("export as markdown", "GENERATE_REPORT"),
+    ("write a summary report", "GENERATE_REPORT"),
+    ("generate a report and save to desktop", "GENERATE_REPORT"),
+    ("create a report of the scraped data", "GENERATE_REPORT"),
+    ("make a pdf of the results", "GENERATE_REPORT"),
+    ("generate a weekly report", "GENERATE_REPORT"),
+    ("build a report file", "GENERATE_REPORT"),
+    ("produce a document with the data", "GENERATE_REPORT"),
+    ("save extracted content to report", "GENERATE_REPORT"),
+    ("write up a report of the analysis", "GENERATE_REPORT"),
+    ("generate report and save to c drive", "GENERATE_REPORT"),
+    ("create a document with the findings", "GENERATE_REPORT"),
+    ("export data to file", "GENERATE_REPORT"),
+    ("convert data to report format", "GENERATE_REPORT"),
+    ("generate a report now", "GENERATE_REPORT"),
+    ("write results to a file please", "GENERATE_REPORT"),
+    ("summarize and write a report", "GENERATE_REPORT"),
+    ("turn the data into a report", "GENERATE_REPORT"),
+    ("make a document from the results", "GENERATE_REPORT"),
+    ("document the scraped data", "GENERATE_REPORT"),
+    ("log results to a file", "GENERATE_REPORT"),
+    ("generate report from scraped data", "GENERATE_REPORT"),
+    ("write a research report", "GENERATE_REPORT"),
+    ("create a formal report", "GENERATE_REPORT"),
+    ("make a detailed report", "GENERATE_REPORT"),
+    ("generate a quick summary file", "GENERATE_REPORT"),
+    ("output a pdf report", "GENERATE_REPORT"),
+    ("make a html page of the results", "GENERATE_REPORT"),
+    ("save report under a new folder", "GENERATE_REPORT"),
+    ("write report to c:/reports/", "GENERATE_REPORT"),
+    ("generate txt file with results", "GENERATE_REPORT"),
+    ("save findings to markdown file", "GENERATE_REPORT"),
+    ("produce a summary document", "GENERATE_REPORT"),
+    ("build a detailed summary", "GENERATE_REPORT"),
+    # Typo/noise
+    ("genrate a report", "GENERATE_REPORT"),
+    ("creat report", "GENERATE_REPORT"),
+    ("make a reprot", "GENERATE_REPORT"),
+    ("genrate pdf report", "GENERATE_REPORT"),
+    ("create a sumary report", "GENERATE_REPORT"),
+]
+
+INTENT_TRAINING_DATA.extend(GENERATE_REPORT_DIRECT * 6)
+
+# =========================================================
+# 30. SYSTEM_INFO (Target: 500+ examples)
+# =========================================================
+
+SYSINFO_TEMPLATES = [
+    # RAM / Memory
+    "how much ram do i have", "how much memory do i have",
+    "what is my ram usage", "ram usage", "memory usage",
+    "how much memory is being used", "how much ram is free",
+    "how much ram is available", "ram stats", "memory stats",
+    "check ram", "check memory", "show ram usage", "display memory usage",
+    "what is the memory status", "ram info", "memory info",
+
+    # CPU
+    "what is my cpu usage", "cpu usage", "cpu stats", "cpu info",
+    "how much cpu am i using", "processor usage", "processor stats",
+    "check cpu", "show cpu usage", "cpu load", "processor load",
+    "is cpu running hot", "cpu temperature", "processor info",
+    "how many cores", "how many cpu cores", "number of processors",
+
+    # Disk / Storage
+    "how much disk space do i have", "disk space", "disk usage",
+    "how much storage is left", "hard drive space", "storage stats",
+    "disk info", "storage info", "check disk", "show disk usage",
+    "how much free space", "free storage", "available disk space",
+    "disk health", "hard drive status", "ssd status",
+
+    # Battery
+    "battery level", "how much battery", "battery percentage",
+    "battery status", "is battery charging", "battery info",
+    "check battery", "show battery", "how much charge left",
+    "power status", "ac adapter status", "plugged in",
+
+    # General system
+    "system info", "system information", "system stats",
+    "system status", "computer info", "pc info", "machine info",
+    "hardware info", "hardware stats", "specs", "computer specs",
+    "what are my specs", "show system info", "display system info",
+    "give me system info", "what are my system stats",
+    "system report", "hardware report", "performance stats",
+    "full system report", "quick system check",
+
+    # OS
+    "what os am i running", "windows version", "operating system",
+    "os version", "what version of windows", "check os version",
+    "system version", "build version", "what build is this",
+
+    # Network
+    "ip address", "what is my ip", "local ip", "network info",
+    "wifi status", "internet connection status", "network stats",
+
+    # Uptime
+    "how long has my computer been on", "system uptime",
+    "uptime", "how long running", "when did i start my pc",
+
+    # Polite forms
+    "can you show me system info", "please show system stats",
+    "could you check my system", "i need system info",
+    "give me a system status", "what are my computer specs",
+
+    # Casual
+    "how is my computer doing", "check my pc", "pc health",
+    "is my computer ok", "how is my system running",
+    "any issues with the system", "system check please",
+    "quick system check", "what is going on with my pc",
+]
+
+INTENT_TRAINING_DATA.extend([(t, "SYSTEM_INFO") for t in SYSINFO_TEMPLATES] * 3)
+
+# =========================================================
+# 31. SCREENSHOT (Target: 400+ examples)
+# =========================================================
+
+SCREENSHOT_TEMPLATES = [
+    # Standard
+    "take a screenshot", "take screenshot", "screenshot",
+    "capture the screen", "capture my screen", "screen capture",
+    "grab the screen", "grab a screenshot", "get a screenshot",
+    "snap the screen", "snip the screen", "print screen",
+    "capture the display", "screen grab", "screen shot",
+    "save screenshot", "save a screenshot", "take a screen shot",
+    "save current screen", "save what is on screen",
+
+    # Purposeful
+    "screenshot for my records", "take a screenshot of this",
+    "screenshot of what is on screen", "capture this for reference",
+    "grab this screen for later", "save this view",
+    "take a screenshot and save it", "capture and save screen",
+    "screenshot and save to desktop", "screenshot save to documents",
+
+    # Polite
+    "can you take a screenshot", "please screenshot this",
+    "could you capture the screen", "take a screenshot please",
+    "i need a screenshot", "would you take a screenshot",
+    "can you grab the screen please", "screenshot this for me",
+
+    # Casual
+    "snap this", "print this", "capture that", "grab this quick",
+    "quick screenshot", "take a quick snap", "print screen now",
+    "i want a screenshot", "get screen pic", "screen pic",
+
+    # Typo / noise
+    "take a screenshort", "screenshott", "screnshot", "sceenshot",
+    "take scrnsht", "screen cature", "grab sceen",
+]
+
+INTENT_TRAINING_DATA.extend([(t, "SCREENSHOT") for t in SCREENSHOT_TEMPLATES] * 4)
+
+# =========================================================
+# 32. COMPOUND INTENT EXAMPLES (for multi-step plan chaining)
+# These help NLP identify the PRIMARY intent when commands are chained
+# =========================================================
+
+COMPOUND_SCRAPE_REPORT = [
+    # Primary intent: WEB_SCRAPE (then generate report as second step)
+    ("go to hacker news scrape it and generate a report", "WEB_SCRAPE"),
+    ("scrape this website and save a report to desktop", "WEB_SCRAPE"),
+    ("extract data from this url and write a markdown report", "WEB_SCRAPE"),
+    ("crawl that site get all the content and save as pdf", "WEB_SCRAPE"),
+    ("go to github trending scrape and create a report", "WEB_SCRAPE"),
+    ("visit that news page get all headlines and save them", "WEB_SCRAPE"),
+    ("pull data from the site and create a summary document", "WEB_SCRAPE"),
+    ("extract content from url and generate html report", "WEB_SCRAPE"),
+    ("scrape and save results somewhere on my computer", "WEB_SCRAPE"),
+    ("go to this url scrape the content then make a report", "WEB_SCRAPE"),
+    ("open browser navigate to site scrape it and report", "WEB_SCRAPE"),
+    ("scrape page then email me the report", "WEB_SCRAPE"),
+    ("crawl the page collect data write a report and save", "WEB_SCRAPE"),
+    ("get the article content and write a markdown summary", "WEB_SCRAPE"),
+    ("extract all the headings then build a report", "WEB_SCRAPE"),
+]
+
+COMPOUND_REPORT_SAVE = [
+    # Primary intent: GENERATE_REPORT
+    ("take the data and generate a pdf report on my desktop", "GENERATE_REPORT"),
+    ("write a report of the results and save to c drive", "GENERATE_REPORT"),
+    ("make a report and put it in a new folder on desktop", "GENERATE_REPORT"),
+    ("generate a report from this data and email it to me", "GENERATE_REPORT"),
+    ("create a markdown file with the scraped data", "GENERATE_REPORT"),
+    ("write up the findings and create a pdf for me", "GENERATE_REPORT"),
+    ("generate a summary text and save to downloads", "GENERATE_REPORT"),
+    ("build report from the extracted content", "GENERATE_REPORT"),
+]
+
+INTENT_TRAINING_DATA.extend(COMPOUND_SCRAPE_REPORT * 4)
+INTENT_TRAINING_DATA.extend(COMPOUND_REPORT_SAVE * 4)
+
+# =========================================================
 # NOISE INJECTION (Add typos, speech errors)
 # =========================================================
 

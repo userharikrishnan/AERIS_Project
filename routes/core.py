@@ -71,6 +71,14 @@ import logging
 # -------------------------
 from services.explanation_engine import ExplanationEngine
 
+# ==============================
+# NEW: Core execution pipeline
+# ==============================
+from services.tool_dispatcher import ToolDispatcher
+from services.smart_confirmation import SmartConfirmationEngine
+from services.session_engine import SessionEngine
+from services.plan_executor import PlanExecutor
+
 logger = logging.getLogger(__name__)
 
 
@@ -81,24 +89,13 @@ logger = logging.getLogger(__name__)
 core_router = APIRouter()
 
 # =========================================================
-# Engines (singletons) - REMOVED - Now using dependency injection
+# Module-level singletons for new services
+# (These are created once and shared across all requests)
 # =========================================================
-
-# REMOVED: attention = AttentionEngine()
-# REMOVED: nlp = NLPProcessor()
-# REMOVED: reasoning = ReasoningEngine()
-# REMOVED: command_engine = CommandEngine()
-# REMOVED: permission_engine = PermissionEngine()
-# REMOVED: memory = MemoryEngine()
-# REMOVED: goal_engine = GoalEngine()
-# REMOVED: planner = Planner()
-# REMOVED: focus_engine = FocusEngine(max_active_items=1)
-# REMOVED: audit = AuditLogger()
-# REMOVED: confirmations = ConfirmationEngine()
-# REMOVED: preferences = PreferenceEngine()
-# REMOVED: dry_run = DryRunSimulator()
-# REMOVED: rollback_engine = RollbackEngine()
-# REMOVED: explainer = ExplanationEngine()
+_tool_dispatcher = ToolDispatcher()
+_smart_confirmation = SmartConfirmationEngine()
+_session_engine = SessionEngine()
+_plan_executor = PlanExecutor(_tool_dispatcher)
 
 # =========================================================
 # Device Registry & Delegation
@@ -137,7 +134,7 @@ goal_executor = None  # Will be initialized in main.py with system
 def process_input(payload: dict, request: Request):
     # Dependency injection from system container
     system = request.app.state.system
-    
+
     # Map engines from system
     attention = system.attention_engine
     nlp = system.nlp_processor
@@ -148,7 +145,7 @@ def process_input(payload: dict, request: Request):
     focus_engine = system.focus_engine
     audit = system.audit_logger
     confirmations = system.confirmation_engine
-    
+
     text = payload.get("text", "").strip()
     user_trust = TrustLevel.STANDARD
 
@@ -160,6 +157,10 @@ def process_input(payload: dict, request: Request):
         autonomous=False
     )
 
+    # ---- Session Management ----
+    session = _session_engine.get_or_create_session()
+    session_id = session.session_id
+
     # User always preempts autonomy
     focus_engine.submit(
         FocusItem("user", PriorityLevel.CRITICAL)
@@ -169,7 +170,7 @@ def process_input(payload: dict, request: Request):
         AuditEvent(
             AuditEventType.USER_INPUT,
             "user",
-            {"text": text}
+            {"text": text, "session_id": session_id[:8]}
         )
     )
 
@@ -185,22 +186,39 @@ def process_input(payload: dict, request: Request):
         intent_type = nlp_output.type
         confidence = nlp_output.confidence
 
+        # ---- Session close detection ----
+        session_closing = _session_engine.detect_close_intent(text, intent_type)
+        if session_closing and _session_engine.has_active_session:
+            closed = _session_engine.close_current_session()
+            response = reasoning.language_engine.generate_from_text(
+                original_text=text,
+                intent_type="CHAT",
+                confidence=confidence
+            )
+            _session_engine.record_turn(text, intent_type, response or "Session closed.")
+            return {
+                "mode": "chat",
+                "response": response or "Understood. Session ended. Let me know when you need me again.",
+                "session_closed": True,
+                "session_id": session_id[:8]
+            }
 
         # ==========================
         # CHAT MODE (ML-BASED)
         # ==========================
         if nlp_output.mode == "CHAT":
-
             response = reasoning.language_engine.generate_from_text(
                 original_text=text,
                 intent_type=nlp_output.type,
-                confidence=nlp_output.confidence
+                confidence=nlp_output.confidence,
+                entities=nlp_output.entities
             )
-
+            _session_engine.record_turn(text, intent_type, response or "")
             return {
                 "mode": "chat",
                 "response": response,
-                "confidence": nlp_output.confidence
+                "confidence": nlp_output.confidence,
+                "session_id": session_id[:8]
             }
 
         # 3. Reasoning with context
@@ -209,7 +227,7 @@ def process_input(payload: dict, request: Request):
             original_text=text,
             memory=memory
         )
-        
+
         # Response validation layer
         if not reasoning_result.response or reasoning_result.confidence < 0.3:
             return {
@@ -236,40 +254,94 @@ def process_input(payload: dict, request: Request):
         )
 
         if not action_payload:
+            response = reasoning_result.response or "I understand. Let me know how you'd like to proceed."
+            _session_engine.record_turn(text, intent_type, response)
             return {
                 "mode": "chat",
-                "response": reasoning_result.response,
+                "response": response,
                 "confidence": reasoning_result.confidence
             }
 
-        # FIX 3 & 4: Pass correct parameters and handle decision properly
+        # === SMART DUAL-MODE CONFIRMATION ===
+        action_name = action_payload.get("action", "")
+        action_params = action_payload.get("params", {})
+
+        # -------------------------------------------------------
+        # NON-DESTRUCTIVE BYPASS: chat/identity/memory actions
+        # never require confirmation — they don't touch system state
+        # -------------------------------------------------------
+        BYPASS_ACTIONS = {
+            "respond", "identity_query", "reason",
+            "memory_store", "memory_recall", "memory_forget",
+            "clarify", "goal_list", "active_window", "list_windows",
+        }
+
+        if action_name in BYPASS_ACTIONS:
+            # Always use template-based response for non-destructive actions
+            # SLM output quality is unreliable for short operational phrases
+            response = reasoning.language_engine.generate_from_text(
+                original_text=text,
+                intent_type=intent_type,
+                confidence=reasoning_result.confidence,
+                entities=nlp_output.entities
+            )
+            _session_engine.record_turn(text, intent_type, response or "")
+            return {
+                "mode": "chat",
+                "response": response or "How can I help?",
+                "confidence": reasoning_result.confidence,
+                "session_id": session_id[:8]
+            }
+
+        smart_decision = _smart_confirmation.evaluate(action_name, action_params)
+
         from services.trust_models import ActionSensitivity
-        
         sensitivity = action_payload.get("sensitivity", ActionSensitivity.LOW)
         confidence = reasoning_result.confidence
-        
-        # FIX: Permission evaluation with correct parameters
+
+        # Permission evaluation
         permission = permission_engine.evaluate(
             ctx=ctx,
             action_sensitivity=sensitivity,
             confidence=confidence
         )
-        
-        # FIX 4: Handle decision properly
+
         if not permission.allowed:
             return {
                 "status": "blocked",
                 "reason": permission.reason
             }
-        
-        if permission.require_confirmation:
+
+        # Auto-approve if smart confirmation says OK
+        if smart_decision.auto_approved and not permission.require_confirmation:
+            # Execute immediately without asking
+            execution_result = _plan_executor.execute_plan(
+                reasoning_result.plan,
+                initial_context={"session_id": session_id, "original_text": text}
+            )
+
+            # Record outcome for learning
+            _smart_confirmation.record_approval(action_name, action_params, smart_decision.fingerprint)
+
+            response = reasoning_result.response or reasoning.language_engine.generate_from_text(
+                original_text=text,
+                intent_type=intent_type,
+                confidence=confidence,
+                entities=nlp_output.entities
+            )
+            _session_engine.record_turn(text, intent_type, response or "", action_name)
+
+            result_summary = execution_result.to_summary()
             return {
-                "status": "confirmation_required",
-                "message": permission.reason,
-                "action": action_payload
+                "mode": "auto_executed",
+                "auto_approved": True,
+                "reason": smart_decision.reason,
+                "response": response,
+                "execution": result_summary,
+                "session_id": session_id[:8]
             }
 
-        # 7. ALWAYS require confirmation
+        # First time — request confirmation
         confirmation = confirmations.create(
             action=action_payload["action"],
             params=action_payload["params"],
@@ -286,10 +358,13 @@ def process_input(payload: dict, request: Request):
 
         return {
             "confirmation_required": True,
+            "first_time": True,
+            "smart_confirmation_note": smart_decision.reason,
             "confirmation_id": confirmation.confirmation_id,
             "action": confirmation.action,
             "params": confirmation.params,
-            "ui_candidates": confirmation.ui_candidates
+            "ui_candidates": confirmation.ui_candidates,
+            "session_id": session_id[:8]
         }
 
     finally:
@@ -303,7 +378,7 @@ def process_input(payload: dict, request: Request):
 @core_router.post("/confirm")
 def confirm_action(payload: dict, request: Request):
     system = request.app.state.system
-    
+
     # Map engines from system
     confirmations = system.confirmation_engine
     preferences = system.preference_engine
@@ -313,11 +388,11 @@ def confirm_action(payload: dict, request: Request):
     explainer = system.explanation_engine
     rollback_engine = system.rollback_engine
     memory = system.memory_engine
-    
+
     confirmation_id = payload.get("confirmation_id")
     approved = payload.get("approved", False)
     preview_only = payload.get("preview_only", False)
-    
+
     confirmation = confirmations.consume(confirmation_id)
     if not confirmation:
         return {"error": "Invalid or expired confirmation"}
@@ -338,12 +413,26 @@ def confirm_action(payload: dict, request: Request):
         return {"status": "cancelled"}
 
     # -------------------------
-    # 9.1 — Dry-run simulation
+    # 9.1 — Dry-run simulation (best-effort, never blocks execution)
     # -------------------------
-    preview = dry_run.simulate(
-        action=confirmation.action,
-        params=confirmation.params
-    )
+    try:
+        preview = dry_run.simulate(
+            action=confirmation.action,
+            params=confirmation.params
+        )
+    except Exception as e:
+        logger.warning(f"[confirm] dry_run.simulate failed (non-fatal): {e}")
+        # Create a minimal safe preview so execution continues
+        from types import SimpleNamespace
+        preview = SimpleNamespace(
+            action=confirmation.action,
+            params=confirmation.params,
+            affected_resources=[],
+            risk_level="medium",
+            reversible=False,
+            rollback_params=None,
+            notes="Simulation skipped"
+        )
 
     if preview_only:
         return {
@@ -357,51 +446,21 @@ def confirm_action(payload: dict, request: Request):
             }
         }
 
-    # -------------------------
-    # Actual delegation
-    # -------------------------
-    delegation = delegation_engine.choose_device(
-        required_capability=confirmation.action,
-        min_trust=TrustLevel.STANDARD,
-        params=confirmation.params
-    )
-
-    if not delegation.allowed:
-        explanation = explainer.explain_failure(
-            action=confirmation.action,
-            reason=delegation.reason,
-            rollback=None,
-            confidence=0.4
-        )
-
-        # Record failure in memory
-        memory.record_outcome(
-            action=confirmation.action,
-            success=False,
-            context={"reason": delegation.reason}
-        )
-
-        return {
-            "blocked": True,
-            "reason": delegation.reason,
-            "explanation": explanation
-        }
+    # =========================================================
+    # ACTUAL TOOL EXECUTION (The missing last mile — now wired!)
+    # =========================================================
 
     audit.log(
         AuditEvent(
             AuditEventType.ACTION_DELEGATED,
             "user",
             {
-                "device_id": delegation.device_id,
                 "tool": confirmation.action,
+                "params": confirmation.params,
                 "preview": preview.notes
             }
         )
     )
-
-    # -------------------------
-    # Rollback
-    # -------------------------
 
     execution_id = str(uuid.uuid4())
 
@@ -415,25 +474,64 @@ def confirm_action(payload: dict, request: Request):
                 rollback_params=preview.rollback_params
             )
         )
-    
-    # Record successful outcome in memory
+
+    # === DISPATCH TO ACTUAL TOOL ===
+    tool_result = _tool_dispatcher.dispatch(
+        action=confirmation.action,
+        params=confirmation.params
+    )
+
+    # Record approval for smart confirmation (so next time it's auto-approved)
+    _smart_confirmation.record_approval(
+        action=confirmation.action,
+        params=confirmation.params
+    )
+
+    # Record outcome in memory
     memory.record_outcome(
         action=confirmation.action,
-        success=True,
+        success=tool_result.success,
         context=confirmation.params
     )
 
+    if not tool_result.success:
+        # Record error to degrade trust for this action
+        _smart_confirmation.record_error(
+            action=confirmation.action,
+            params=confirmation.params,
+            error=tool_result.error or "unknown error"
+        )
+        return {
+            "status": "execution_failed",
+            "execution_id": execution_id,
+            "tool": confirmation.action,
+            "error": tool_result.error,
+            "data": tool_result.data  # May contain clarification info
+        }
+
+    audit.log(
+        AuditEvent(
+            AuditEventType.ACTION_SUCCEEDED,
+            "user",
+            {
+                "execution_id": execution_id,
+                "tool": confirmation.action,
+                "success": True
+            }
+        )
+    )
+
     return {
-        "delegate": True,
+        "status": "executed",
         "execution_id": execution_id,
-        "device_id": delegation.device_id,
         "tool": confirmation.action,
-        "params": confirmation.params,
+        "success": tool_result.success,
+        "result": tool_result.data,
         "preview": {
             "risk_level": preview.risk_level,
             "reversible": preview.reversible,
-            "notes": preview.notes
-        }
+        },
+        "smart_confirmation_note": "This action will be auto-approved next time."
     }
 
 

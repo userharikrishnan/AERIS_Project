@@ -10,47 +10,55 @@ INTENT_TO_IDX = {
     # Application Control
     "OPEN_APP": 0,
     "CLOSE_APP": 1,
-    
+
     # Web Operations
     "WEB_SEARCH": 2,
     "WEB_NAVIGATE": 3,
-    
+    "WEB_SCRAPE": 27,          # NEW: extract content from web pages
+
     # File System
     "FILE_READ": 4,
     "FILE_WRITE": 5,
     "FILE_DELETE": 6,
     "FILE_LIST": 7,
-    
+
+    # Report Generation
+    "GENERATE_REPORT": 28,     # NEW: create .md/.html/.pdf reports
+
     # Memory Operations
     "MEMORY_STORE": 8,
     "MEMORY_RECALL": 9,
     "MEMORY_FORGET": 10,
-    
+
     # Goal Management
     "GOAL_CREATE": 11,
     "GOAL_LIST": 12,
     "GOAL_PAUSE": 13,
     "GOAL_RESUME": 14,
     "GOAL_COMPLETE": 15,
-    
+
     # Vision/Screen Operations
     "VISION_QUERY": 16,
     "READ_SCREEN": 17,
     "ACTIVE_WINDOW": 18,
     "LIST_WINDOWS": 19,
-    
+    "SCREENSHOT": 30,          # NEW: take + save screenshots
+
     # System Control
     "ROLLBACK": 20,
     "CONFIRM": 21,
     "CANCEL": 22,
-    
+
+    # System Information
+    "SYSTEM_INFO": 29,         # NEW: cpu/ram/disk/battery queries
+
     # Cognitive
     "REASONING": 23,
     "IDENTITY_QUERY": 24,
-    
+
     # Fallback
     "CHAT": 25,
-    "UNKNOWN": 26
+    "UNKNOWN": 26,
 }
 
 NUM_INTENT_CLASSES = len(INTENT_TO_IDX)

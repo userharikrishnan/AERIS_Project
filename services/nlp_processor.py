@@ -131,26 +131,39 @@ class NLPProcessor:
     
     def _infer_mode(self, intent: str, confidence: float, uncertainty: float, margin: float) -> str:
         """
-        ML-based mode inference using prediction quality
+        ML-based mode inference using prediction quality.
+        Certain intents are always ACTION even if margin is low —
+        they are handled as non-destructive bypasses in core.py.
         """
-        
         # Direct chat prediction
         if intent == "CHAT":
             return "CHAT"
-        
+
+        # Some intents are non-destructive and always actionable —
+        # route them as ACTION so they reach the BYPASS_ACTIONS path
+        ALWAYS_ACTION = {
+            "IDENTITY_QUERY", "MEMORY_RECALL", "MEMORY_STORE", "MEMORY_FORGET",
+            "REASONING", "GOAL_LIST", "ACTIVE_WINDOW", "LIST_WINDOWS",
+            "SYSTEM_INFO", "SCREENSHOT",
+            "WEB_SCRAPE", "GENERATE_REPORT",
+        }
+        if intent in ALWAYS_ACTION and confidence >= 0.5:
+            return "ACTION"
+
         # Low separation between top intents → model confused
         if margin < 0.15:
             return "CHAT"
-        
+
         # High uncertainty → conversational fallback
         if uncertainty > 0.5:
             return "CHAT"
-        
+
         # Weak confidence → not actionable
         if confidence < 0.5:
             return "CHAT"
-        
+
         return "ACTION"
+
     
     def extract_intent(self, text: str) -> Intent:
         """
@@ -366,6 +379,77 @@ class NLPProcessor:
                     flags=re.IGNORECASE
                 ).strip()
                 entities['url'] = f"https://{domain}" if domain else "https://google.com"
+
+        # WEB_SCRAPE
+        elif intent_type == "WEB_SCRAPE":
+            # Try URL pattern first
+            match = self.URL_PATTERN.search(raw_text)
+            if match:
+                url = match.group(1)
+                if not url.startswith(('http://', 'https://')):
+                    url = 'https://' + url
+                entities['url'] = url
+            else:
+                entities['url'] = 'current_page'
+            # Check if user wants to save results
+            if any(w in text.lower() for w in ['save', 'store', 'write', 'report', 'desktop', 'file']):
+                entities['save'] = True
+
+        # GENERATE_REPORT
+        elif intent_type == "GENERATE_REPORT":
+            # Detect format
+            fmt = 'md'  # default markdown
+            if 'pdf' in text.lower():
+                fmt = 'pdf'
+            elif 'html' in text.lower():
+                fmt = 'html'
+            elif 'txt' in text.lower() or 'text' in text.lower():
+                fmt = 'txt'
+            entities['format'] = fmt
+            # Detect save path hints
+            if 'desktop' in text.lower():
+                entities['save_path'] = 'desktop'
+            elif 'c drive' in text.lower() or 'c:/' in text.lower():
+                entities['save_path'] = 'C:/AERIS_Reports'
+            elif 'download' in text.lower():
+                entities['save_path'] = 'downloads'
+            else:
+                entities['save_path'] = 'desktop'
+            # Report title hint
+            title = re.sub(
+                r'\b(generate|create|make|write|produce|a|the|report|document|'
+                r'pdf|html|markdown|md|txt|text|summary|and|save|to|on|my)\b',
+                '', text, flags=re.IGNORECASE
+            ).strip()
+            entities['title'] = title if len(title) > 2 else 'AERIS Report'
+
+        # SYSTEM_INFO
+        elif intent_type == "SYSTEM_INFO":
+            # Detect what subsystem the user is asking about
+            sub = 'full'
+            if any(w in text.lower() for w in ['cpu', 'processor', 'core']):
+                sub = 'cpu'
+            elif any(w in text.lower() for w in ['ram', 'memory']):
+                sub = 'memory'
+            elif any(w in text.lower() for w in ['disk', 'storage', 'drive', 'space', 'free']):
+                sub = 'disk'
+            elif any(w in text.lower() for w in ['battery', 'charge', 'power', 'plugged']):
+                sub = 'battery'
+            elif any(w in text.lower() for w in ['ip', 'network', 'wifi', 'internet']):
+                sub = 'network'
+            elif any(w in text.lower() for w in ['uptime', 'how long']):
+                sub = 'uptime'
+            entities['subsystem'] = sub
+
+        # SCREENSHOT
+        elif intent_type == "SCREENSHOT":
+            # Save path detection
+            if 'desktop' in text.lower():
+                entities['save_path'] = 'desktop'
+            elif 'document' in text.lower():
+                entities['save_path'] = 'documents'
+            else:
+                entities['save_path'] = 'desktop'
         
         # FILE operations
         elif intent_type in {"FILE_READ", "FILE_WRITE", "FILE_DELETE"}:

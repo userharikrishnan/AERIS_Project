@@ -1,11 +1,127 @@
-fastapi
-uvicorn
-pydantic
-sqlalchemy
-aiofiles
-scikit-learn
-torch
-torchvision
-torchaudio
-pyautogui
-pytesseract
+# ============================================================
+# AERIS — Requirements
+# Autonomous Execution and Reasoning Intelligence System
+# ============================================================
+
+# -------------------------
+# Web Framework
+# -------------------------
+fastapi>=0.110.0
+uvicorn>=0.27.0
+
+# -------------------------
+# Data Validation
+# -------------------------
+pydantic>=2.6.0
+
+# -------------------------
+# Async / HTTP server
+# -------------------------
+aiofiles>=23.0.0
+python-multipart>=0.0.9
+
+# -------------------------
+# Database
+# -------------------------
+sqlalchemy>=2.0.0
+
+# -------------------------
+# ML / PyTorch (core SLM)
+# Installs CPU version by default. For GPU:
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# -------------------------
+torch>=2.2.0
+torchvision>=0.17.0
+torchaudio>=2.2.0
+
+# -------------------------
+# ML / NLP
+# -------------------------
+scikit-learn>=1.4.0
+numpy>=1.26.0
+
+# -------------------------
+# System / Desktop Automation
+# -------------------------
+pyautogui>=0.9.54
+pillow>=10.0.0
+
+# -------------------------
+# OCR (for vision engine)
+# -------------------------
+pytesseract>=0.3.10
+
+# -------------------------
+# NEW: Web scraping
+# Why: WebScraperTool fetches and parses HTML from any URL.
+# pip install requests beautifulsoup4
+# -------------------------
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=5.1.0
+
+# -------------------------
+# NEW: System monitoring (ProcessTool + SystemTool)
+# Why: psutil provides cross-platform CPU, RAM, disk, and process info.
+# pip install psutil
+# -------------------------
+psutil>=5.9.0
+
+# -------------------------
+# NEW: Clipboard access (SystemTool)
+# Why: pyperclip enables clipboard read/write on Windows
+# pip install pyperclip
+# -------------------------
+pyperclip>=1.8.2
+
+# -------------------------
+# NEW: PDF report generation (ReportGeneratorTool, optional)
+# Why: reportlab creates PDF reports. Falls back to .md if not installed.
+# pip install reportlab
+# -------------------------
+reportlab>=4.1.0
+
+# -------------------------
+# Audio volume control (SystemTool volume, optional)
+# Why: pycaw wraps Windows Core Audio API for volume control
+# pip install pycaw comtypes
+# -------------------------
+# pycaw>=20230310
+# comtypes>=1.4.1
+
+# -------------------------
+# Development / testing utilities
+# -------------------------
+httpx>=0.27.0
+
+# -------------------------
+# WebSocket support for uvicorn (required for /ws endpoint)
+# pip install websockets "uvicorn[standard]"
+# -------------------------
+websockets>=12.0
+uvicorn[standard]>=0.27.0
+
+# -------------------------
+# Native Windows UI (CustomTkinter)
+# pip install customtkinter
+# -------------------------
+customtkinter>=5.2.0
+
+# -------------------------
+# Voice Input (Speech Recognition + mic)
+# pip install SpeechRecognition pyaudio
+# -------------------------
+SpeechRecognition>=3.10.0
+pyaudio>=0.2.14
+
+# -------------------------
+# Voice Output (Windows TTS, fully offline)
+# pip install pyttsx3
+# -------------------------
+pyttsx3>=2.90
+
+# -------------------------
+# System Tray Icon
+# pip install pystray
+# -------------------------
+pystray>=0.19.5

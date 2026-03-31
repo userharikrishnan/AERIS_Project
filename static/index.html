@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en" data-state="idle">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AERIS — Autonomous Intelligence</title>
+    <meta name="description" content="AERIS — Autonomous Execution and Reasoning Intelligence System. Voice-controlled AI assistant." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Inter:wght@300;400;500&family=Roboto+Mono:wght@300;400&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/static/aeris.css" />
+</head>
+<body>
+
+<!-- ── Star field background ── -->
+<div class="stars-bg" id="starsBg"></div>
+<div class="nebula-bg"></div>
+
+<!-- ── Greeting / Boot overlay ── -->
+<div class="boot-overlay" id="bootOverlay">
+    <div class="boot-content">
+        <div class="boot-logo">A E R I S</div>
+        <div class="boot-message" id="bootMessage">INITIALIZING SYSTEMS...</div>
+        <div class="boot-bar"><div class="boot-bar-fill" id="bootBarFill"></div></div>
+    </div>
+</div>
+
+<!-- ── Main App ── -->
+<main class="aeris-app" id="aerisApp">
+
+    <!-- Header -->
+    <header class="top-bar">
+        <div class="top-left">
+            <span class="logo-mark">⬡</span>
+            <span class="logo-text">A E R I S</span>
+        </div>
+        <div class="top-center">
+            <span class="version-chip">v0.3 // AUTONOMOUS INTELLIGENCE</span>
+        </div>
+        <div class="top-right">
+            <div class="conn-indicator" id="connIndicator">
+                <span class="conn-dot"></span>
+                <span class="conn-label">Connecting...</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- ── Character Section ── -->
+    <section class="character-section">
+
+        <!-- Particle canvas (behind rings) -->
+        <canvas id="particleCanvas" class="particle-canvas" width="520" height="520"></canvas>
+
+        <!-- Ring + Orb system -->
+        <div class="ring-system" id="ringSystem">
+            <div class="ring ring-outer"></div>
+            <div class="ring ring-mid"></div>
+            <div class="ring ring-inner"></div>
+            <div class="ring ring-micro"></div>
+
+            <!-- Central Orb -->
+            <div class="orb-wrap" id="orbWrap">
+                <div class="orb-shell">
+                    <div class="orb-body" id="orbBody">
+                        <div class="orb-core"></div>
+                        <div class="orb-lens"></div>
+                    </div>
+                </div>
+                <div class="orb-halo"></div>
+                <div class="orb-glow" id="orbGlow"></div>
+            </div>
+        </div>
+
+        <!-- Live waveform (listening state) -->
+        <canvas id="waveformCanvas" class="waveform-canvas" width="380" height="56"></canvas>
+
+        <!-- Status pill -->
+        <div class="status-pill" id="statusPill">
+            <span class="status-dot" id="statusDot"></span>
+            <span class="status-text" id="statusText">Say "Hey AERIS" to activate</span>
+        </div>
+
+        <!-- Intent badge -->
+        <div class="intent-readout" id="intentReadout"></div>
+    </section>
+
+    <!-- ── Transcript Section ── -->
+    <section class="transcript-section">
+        <div class="transcript-panel" id="transcriptPanel">
+            <div class="transcript-header">
+                <span class="t-label">INTERACTION LOG</span>
+                <button class="clear-btn" id="clearBtn" title="Clear log">✕ Clear</button>
+            </div>
+            <div class="transcript-body" id="transcriptBody">
+                <div class="transcript-empty">
+                    <span class="empty-icon">◎</span>
+                    <span>Waiting for voice input...</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ── Controls ── -->
+    <footer class="controls-bar">
+        <button class="ctrl-btn" id="muteBtn">
+            <span class="ctrl-icon" id="muteIcon">🎤</span>
+            <span class="ctrl-label">Mic Active</span>
+        </button>
+
+        <button class="ctrl-btn" id="ttsBtn">
+            <span class="ctrl-icon" id="ttsIcon">🔊</span>
+            <span class="ctrl-label">Voice On</span>
+        </button>
+
+        <div class="hotword-hint">
+            <span class="hw-pill">⌀ "Hey AERIS"</span>
+            <span class="hw-sub">Always-on wake word</span>
+        </div>
+
+        <button class="ctrl-btn" id="debugBtn">
+            <span class="ctrl-icon">📊</span>
+            <span class="ctrl-label">Status</span>
+        </button>
+    </footer>
+
+</main>
+
+<!-- ── Debug panel ── -->
+<div class="debug-panel" id="debugPanel">
+    <div class="debug-header">SYSTEM STATUS <button id="debugClose">✕</button></div>
+    <div class="debug-body" id="debugBody">Loading...</div>
+</div>
+
+<script src="/static/aeris.js"></script>
+</body>
+</html>
