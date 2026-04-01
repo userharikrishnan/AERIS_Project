@@ -19,8 +19,14 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-HOTWORD = "hey aeris"
-
+# Broad variants to catch Google STT misinterpretations of "Aeris"
+HOTWORD_VARIANTS = [
+    "hey aeris", "hey aris", "hey iris", "hey ares", "hey eris", 
+    "hey areas", "hey aeros", "hey eric", "hey erris", "hey heris", 
+    "hey aras", "hey eros", "hey heiress", "aeris", "hey harris"
+]
+# Standalone wake words if STT cuts off the second word
+EXACT_WAKE_WORDS = ["hey", "hello", "hi", "wake up", "system online"]
 
 class VoiceEngine:
     def __init__(
@@ -153,10 +159,18 @@ class VoiceEngine:
 
                 # ── Hotword gate ───────────────────────────────────
                 if not self.active:
-                    if HOTWORD in text:
+                    is_match = False
+                    if any(v in text for v in HOTWORD_VARIANTS):
+                        is_match = True
+                    elif text in EXACT_WAKE_WORDS:
+                        is_match = True
+
+                    if is_match:
+                        logger.info(f"[VoiceEngine] Woke up on: '{text}'")
                         self.active = True
                         self.on_hotword()
                     continue
+
 
                 # ── Live command ───────────────────────────────────
                 self.on_transcript(text)

@@ -320,11 +320,27 @@ function initSpeech() {
         const full = (finalBuf + interim).trim().toLowerCase();
 
         // ── Hotword detection ──────────────────────────────────
-        if (!aerisActive && full.includes(CFG.hotword)) {
-            aerisActive = true;
-            finalBuf = '';
-            greet();
-            return;
+        if (!aerisActive) {
+            let isHotword = false;
+            const variants = [
+                'hey aeris', 'hey aris', 'hey iris', 'hey ares', 'hey eris', 
+                'hey areas', 'hey aeros', 'hey eric', 'hey erris', 'hey heris', 
+                'hey aras', 'hey eros', 'hey heiress', 'aeris', 'hey harris'
+            ];
+            
+            if (variants.some(v => full.includes(v))) {
+                isHotword = true;
+            } else if (['hey', 'hello', 'hi', 'wake up'].includes(full)) {
+                // strict match if the STT cuts off the second word entirely
+                isHotword = true;
+            }
+
+            if (isHotword) {
+                aerisActive = true;
+                finalBuf = '';
+                greet();
+                return;
+            }
         }
 
         if (!aerisActive) return;
