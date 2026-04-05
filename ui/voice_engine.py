@@ -16,6 +16,7 @@ Callbacks (called from background threads — must be thread-safe):
 import threading
 import queue
 import logging
+from models.wakeword import WakeWordDetector
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,9 @@ class VoiceEngine:
         self.active      = False   # has hotword been said?
         self.mic_muted   = False
         self.tts_enabled = True
+        
+        # ML Engine
+        self.wakeword_detector = WakeWordDetector()
 
         self._tts_queue  = queue.Queue()
         self._stop_event = threading.Event()
@@ -148,6 +152,38 @@ class VoiceEngine:
                     except sr.WaitTimeoutError:
                         continue
 
+                # ── Hotword gate ───────────────────────────────────
+                if not self.active:
+                    is_match = False
+                    
+                    # 1. Custom Neural Network (100% Offline PyTorch)
+                    if self.wakeword_detector.is_active():
+                        try:
+                            # recognizer audio data is captured — retrieve 16kHz raw PCM bytes
+                            raw_bytes = audio.get_raw_data(convert_rate=16000, convert_width=2)
+                            if self.wakeword_detector.predict(raw_bytes):
+                                is_match = True
+                                logger.info("[VoiceEngine] Custom PyTorch WakeWord model triggered!")
+                        except Exception as e:
+                            logger.error(f"[VoiceEngine] WakeWord ML Error: {e}")
+                    
+                    # 2. Fallback to STT Text Matching (Fuzzy Matcher)
+                    if not is_match:
+                        try:
+                            text = recognizer.recognize_google(audio).lower().strip()
+                            logger.debug(f"[STT Fallback] '{text}'")
+                            if any(v in text for v in HOTWORD_VARIANTS) or text in EXACT_WAKE_WORDS:
+                                is_match = True
+                        except:
+                            pass
+
+                    if is_match:
+                        logger.info(f"[VoiceEngine] Woke up")
+                        self.active = True
+                        self.on_hotword()
+                    continue
+
+                # ── Live command ───────────────────────────────────
                 try:
                     text = recognizer.recognize_google(audio).lower().strip()
                     logger.debug(f"[STT] '{text}'")
@@ -157,22 +193,6 @@ class VoiceEngine:
                     logger.warning(f"[STT] Request error: {e}")
                     continue
 
-                # ── Hotword gate ───────────────────────────────────
-                if not self.active:
-                    is_match = False
-                    if any(v in text for v in HOTWORD_VARIANTS):
-                        is_match = True
-                    elif text in EXACT_WAKE_WORDS:
-                        is_match = True
-
-                    if is_match:
-                        logger.info(f"[VoiceEngine] Woke up on: '{text}'")
-                        self.active = True
-                        self.on_hotword()
-                    continue
-
-
-                # ── Live command ───────────────────────────────────
                 self.on_transcript(text)
                 self.on_command(text)
 

@@ -186,20 +186,22 @@ def process_input(payload: dict, request: Request):
         intent_type = nlp_output.type
         confidence = nlp_output.confidence
 
-        # ---- Session close detection ----
+        # ---- Session close detection & Saving ----
         session_closing = _session_engine.detect_close_intent(text, intent_type)
         if session_closing and _session_engine.has_active_session:
-            closed = _session_engine.close_current_session()
-            response = reasoning.language_engine.generate_from_text(
-                original_text=text,
-                intent_type="CHAT",
-                confidence=confidence
+            confirmation = confirmations.create(
+                action="session_close",
+                params={"session_id": session_id},
+                ui_candidates=["Yes, turn off", "No, keep listening"]
             )
-            _session_engine.record_turn(text, intent_type, response or "Session closed.")
             return {
-                "mode": "chat",
-                "response": response or "Understood. Session ended. Let me know when you need me again.",
-                "session_closed": True,
+                "confirmation_required": True,
+                "first_time": True,
+                "smart_confirmation_note": "You requested to end the session. Please confirm.",
+                "confirmation_id": confirmation.confirmation_id,
+                "action": "session_close",
+                "params": {"session_id": session_id},
+                "ui_candidates": confirmation.ui_candidates,
                 "session_id": session_id[:8]
             }
 
@@ -213,7 +215,7 @@ def process_input(payload: dict, request: Request):
                 confidence=nlp_output.confidence,
                 entities=nlp_output.entities
             )
-            _session_engine.record_turn(text, intent_type, response or "")
+            _session_engine.record_turn(text, intent_type, response or "", entities=nlp_output.entities)
             return {
                 "mode": "chat",
                 "response": response,
@@ -222,14 +224,25 @@ def process_input(payload: dict, request: Request):
             }
 
         # 3. Reasoning with context
+        session_context = _session_engine.get_session_context()
         reasoning_result = reasoning.reason(
             intent=nlp_output,
             original_text=text,
-            memory=memory
+            memory=memory,
+            session_context=session_context
         )
 
         # Response validation layer
-        if not reasoning_result.response or reasoning_result.confidence < 0.3:
+        if getattr(reasoning_result, 'needs_clarification', False):
+            _session_engine.record_turn(text, intent_type, reasoning_result.clarification_question, entities=nlp_output.entities)
+            return {
+                "mode": "chat",
+                "response": reasoning_result.clarification_question,
+                "confidence": reasoning_result.confidence,
+                "session_id": session_id[:8]
+            }
+            
+        if not reasoning_result.response or reasoning_result.confidence < 0.4:
             return {
                 "response": reasoning_result.response or "Action planned",
                 "confidence": reasoning_result.confidence,
@@ -255,7 +268,7 @@ def process_input(payload: dict, request: Request):
 
         if not action_payload:
             response = reasoning_result.response or "I understand. Let me know how you'd like to proceed."
-            _session_engine.record_turn(text, intent_type, response)
+            _session_engine.record_turn(text, intent_type, response, entities=nlp_output.entities)
             return {
                 "mode": "chat",
                 "response": response,
@@ -285,7 +298,7 @@ def process_input(payload: dict, request: Request):
                 confidence=reasoning_result.confidence,
                 entities=nlp_output.entities
             )
-            _session_engine.record_turn(text, intent_type, response or "")
+            _session_engine.record_turn(text, intent_type, response or "", entities=nlp_output.entities)
             return {
                 "mode": "chat",
                 "response": response or "How can I help?",
@@ -329,7 +342,7 @@ def process_input(payload: dict, request: Request):
                 confidence=confidence,
                 entities=nlp_output.entities
             )
-            _session_engine.record_turn(text, intent_type, response or "", action_name)
+            _session_engine.record_turn(text, intent_type, response or "", action_name, entities=nlp_output.entities)
 
             result_summary = execution_result.to_summary()
             return {
@@ -474,6 +487,38 @@ def confirm_action(payload: dict, request: Request):
                 rollback_params=preview.rollback_params
             )
         )
+
+    # === HANDLE CORE SYSTEM ACTIONS FIRST ===
+    if confirmation.action == "session_close":
+        closed_session = _session_engine.close_current_session()
+        if closed_session:
+            import os
+            from datetime import datetime
+            os.makedirs("data/sessions", exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"data/sessions/session_{ts}.md"
+            with open(filename, "w", encoding="utf-8") as f:
+                f.write(f"# AERIS Session Log\n")
+                f.write(f"**Session ID:** {closed_session.session_id}\n")
+                f.write(f"**Duration:** {closed_session.duration:.1f} seconds\n")
+                f.write(f"**Turns:** {closed_session.turn_count}\n\n")
+                f.write("---\n\n")
+                for item in closed_session.history:
+                    f.write(f"### Turn {item.get('turn')}\n")
+                    f.write(f"**YOU:** {item.get('user_input')}\n\n")
+                    if item.get("intent"):
+                        f.write(f"*[Detected Intent: {item.get('intent')}]*\n\n")
+                    f.write(f"**AERIS:** {item.get('response')}\n\n")
+                    if item.get("action"):
+                        f.write(f"*[Executed Action: {item.get('action')}]*\n\n")
+                    f.write("---\n\n")
+            logger.info(f"[Session] Saved transcript to {filename}")
+            
+        return {
+            "status": "executed",
+            "session_closed": True,
+            "response": "Understood. Session terminated. The transcript has been saved safely."
+        }
 
     # === DISPATCH TO ACTUAL TOOL ===
     tool_result = _tool_dispatcher.dispatch(

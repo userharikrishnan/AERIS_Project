@@ -152,15 +152,16 @@ class NLPProcessor:
 
         # Low separation between top intents → model confused
         if margin < 0.15:
-            return "CHAT"
+            # If the top intent was CHAT, keep it. Otherwise it's an uncertain action.
+            return "CHAT" if intent == "CHAT" else "ACTION"
 
-        # High uncertainty → conversational fallback
+        # High uncertainty → don't break execution chains just because of noise
         if uncertainty > 0.5:
-            return "CHAT"
+            return "CHAT" if intent == "CHAT" else "ACTION"
 
-        # Weak confidence → not actionable
-        if confidence < 0.5:
-            return "CHAT"
+        # Weak confidence → not actionable, needs clarification, but don't force 'CHAT'
+        if confidence < 0.4:
+            return "CHAT" if intent == "CHAT" else "ACTION"
 
         return "ACTION"
 

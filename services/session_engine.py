@@ -42,7 +42,7 @@ class Session:
     context: Dict = field(default_factory=dict)
     history: List[Dict] = field(default_factory=list)
 
-    def add_turn(self, user_input: str, intent: str, response: str, action: Optional[str] = None):
+    def add_turn(self, user_input: str, intent: str, response: str, action: Optional[str] = None, entities: Optional[Dict] = None):
         """Record a completed interaction turn."""
         self.turn_count += 1
         self.history.append({
@@ -51,6 +51,7 @@ class Session:
             "intent": intent,
             "response": response,
             "action": action,
+            "entities": entities or {},
             "timestamp": time.time()
         })
 
@@ -125,11 +126,12 @@ class SessionEngine:
         user_input: str,
         intent: str,
         response: str,
-        action: Optional[str] = None
+        action: Optional[str] = None,
+        entities: Optional[Dict] = None
     ):
         """Record a completed turn in the current session."""
         session = self.get_or_create_session()
-        session.add_turn(user_input, intent, response, action)
+        session.add_turn(user_input, intent, response, action, entities)
 
     # ------------------------------------------------------------------
     # Session close detection

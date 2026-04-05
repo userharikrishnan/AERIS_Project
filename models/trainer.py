@@ -14,6 +14,7 @@ class SLMTrainer:
       - Ignore padding tokens in loss (idx 0)
       - Warmup scheduler support
       - Train/eval mode management
+      - CRITICAL FIX 4: Loss masking to train only on assistant tokens
     """
 
     def __init__(
@@ -49,12 +50,12 @@ class SLMTrainer:
         self._base_lr = lr
 
     # ------------------------------------------------------------------
-    # Core training step
+    # Core training step with CRITICAL FIX 4: Loss Masking
     # ------------------------------------------------------------------
 
     def train_step(self, inputs: torch.Tensor, targets: torch.Tensor) -> dict:
         """
-        Single optimisation step.
+        Single optimisation step with loss masking.
 
         Args:
             inputs:  (B, T) token IDs — context window
@@ -77,12 +78,22 @@ class SLMTrainer:
         # Forward — model returns (logits, attn_weights)
         logits, _ = self.model(inputs)          # (B, T, V)
 
+        # CRITICAL FIX 4: Loss masking to train only on assistant tokens
         # Flatten for loss
         V = logits.size(-1)
         loss = self.loss_fn(
             logits.view(-1, V),     # (B*T, V)
             targets.view(-1),       # (B*T,)
         )
+        
+        # CRITICAL FIX 4: Mask out user tokens (0 padding already ignored by ignore_index)
+        # But we need to mask tokens that are part of the user input (non-zero but not assistant)
+        # The targets for user input positions are 0 (from full_target creation in make_slm_batch)
+        # Since ignore_index=0 already ignores these, no additional masking needed for basic case.
+        # However, for extra safety and to ensure ONLY assistant responses are trained:
+        mask = targets.view(-1) != 0
+        if mask.sum() > 0:
+            loss = (loss * mask).sum() / mask.sum()
 
         loss.backward()
 

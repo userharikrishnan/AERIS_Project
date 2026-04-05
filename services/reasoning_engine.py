@@ -70,7 +70,7 @@ class ReasoningEngine:
             self._signal_bus = SignalBus()
             self.reflection_engine = ReflectionEngine(self.self_model, self._signal_bus)
 
-    def reason(self, intent, original_text="", memory=None):
+    def reason(self, intent, original_text="", memory=None, session_context=None):
         visual_state = None
         identity_signal = None
 
@@ -82,6 +82,40 @@ class ReasoningEngine:
 
         # Get memory context if available
         context_memory = memory.get_context_bundle() if memory else {}
+
+        # -----------------------------------------------------------------
+        # CONTEXTUAL ENTITY MERGING (AERIS 4.0)
+        # -----------------------------------------------------------------
+        if session_context and "recent_history" in session_context:
+            history = session_context["recent_history"]
+            if history:
+                last_turn = history[-1]
+                last_entities = last_turn.get("entities", {})
+                
+                # If current intent is an action targeting something but lacks the target, inherit it
+                # For example: "open c drive" -> Target: "c drive". Next command: "go to downloads" -> No target, just implicit path.
+                if getattr(intent, 'entities', None) is not None:
+                    # Specific merge: if we need a 'target' or 'app' or 'path' and don't have it
+                    for key in ["target", "app", "path", "filename", "url"]:
+                        if key not in intent.entities and key in last_entities:
+                            intent.entities[key] = last_entities[key]
+                            
+                # Context-aware Path Assembly ("open c drive", "go to downloads" -> c:\downloads)
+                if "target" in intent.entities and last_entities.get("target"):
+                    curr_tgt = intent.entities["target"].lower()
+                    last_tgt = last_entities["target"].lower()
+                    
+                    # If current is just a folder name and last was a drive/path
+                    if ("drive" in last_tgt or "\\" in last_tgt or ":" in last_tgt) and ":" not in curr_tgt:
+                        # Extract root
+                        root = last_tgt.split()[0] if " " in last_tgt and ":" not in last_tgt else last_tgt
+                        if "c drive" in last_tgt: root = "c:\\"
+                        elif "d drive" in last_tgt: root = "d:\\"
+                        
+                        root_clean = root.rstrip('\\')
+                        if curr_tgt != root_clean.lower():
+                            intent.entities["target"] = f"{root_clean}\\{curr_tgt.split()[-1]}"
+        # -----------------------------------------------------------------
 
         # Context-aware planning with memory and alternatives
         plan = self.planner.create_plan(
@@ -117,8 +151,8 @@ class ReasoningEngine:
                 if success_rate < 0.5:
                     confidence *= (0.5 + success_rate)
 
-        # Pre-execution risk check
-        if confidence < 0.3:
+        # Pre-execution risk check (Restored strict ML confidence bounds)
+        if confidence < 0.4:
             trace = {
                 "intent": intent.type,
                 "confidence": confidence,
@@ -130,11 +164,11 @@ class ReasoningEngine:
                 plan=plan,
                 confidence=confidence,
                 verified=verified,
-                response="I'm not confident enough to proceed.",
+                response="I'm not exactly sure what to do here.",
                 visual_state=visual_state,
                 identity_signal=identity_signal,
                 needs_clarification=True,
-                clarification_question="Can you clarify your request?",
+                clarification_question="Can you tell me more specifically?",
                 trace=trace
             )
 
@@ -144,7 +178,7 @@ class ReasoningEngine:
 
         if verified and (
             confidence < 0.5 or
-            (confidence < 0.65 and uncertainty > 0.5) or
+            (confidence < 0.7 and uncertainty > 0.5) or
             (confidence < 0.6 and len(alternatives) > 2)
         ):
             question = self.clarifier.generate(

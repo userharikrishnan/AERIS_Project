@@ -27,12 +27,12 @@ from data.intent_training_data import INTENT_TRAINING_DATA
 # Production Config
 # -------------------------
 SEED = 42
-EPOCHS_SLM = 1000
+EPOCHS_SLM = 50
 EPOCHS_CLASSIFIER = 500
 EPOCHS_SCORER = 300
 LEARNING_RATE = 0.001
-BATCH_SIZE = 32
-PATIENCE = 50
+BATCH_SIZE = 64  # CRITICAL FIX 3: Increased from 32 to 64
+PATIENCE = 150
 VALIDATION_SPLIT = 0.2
 MIN_SAMPLES_PER_CLASS = 100  # Minimum samples for stratification
 SAVE_DIR = "checkpoints"
@@ -62,6 +62,10 @@ tokenizer = Tokenizer(max_vocab_size=10000)
 all_texts = []
 all_texts += [t for pair in TRAINING_PAIRS for t in pair]
 all_texts += [text for text, _ in INTENT_TRAINING_DATA]
+
+# CRITICAL FIX 1: ADD SPECIAL TOKENS FOR ROLE-AWARE TRAINING
+special_tokens = ["<USER>", "<ASSISTANT>", "<EOS>"]
+all_texts += special_tokens
 
 # Domain-specific vocabulary for AERIS
 domain_vocab = [
@@ -170,12 +174,29 @@ tokenizer.train(all_texts, min_freq=1)
 vocab_size = tokenizer.vocab_size
 print(f"Vocabulary size: {vocab_size} words")
 print(f"Domain terms added: {len(domain_vocab)}")
+print(f"Special tokens added: {special_tokens}")
 
 # Save tokenizer
 tokenizer.save(f"{SAVE_DIR}/tokenizer.json")
 
 # =========================================================
-# STEP 2: Train SLM (Response Generation) — IMPROVED VERSION
+# PRE-TOKENIZE SLM DATA (CRITICAL SPEED FIX)
+# =========================================================
+print("\nPre-tokenizing SLM dataset...")
+
+TOKENIZED_PAIRS = []
+
+for input_text, response in TRAINING_PAIRS:
+    input_ids = tokenizer.encode("<USER> " + input_text + " <ASSISTANT>")
+    target_ids = tokenizer.encode(response + " <EOS>")
+    
+    if len(input_ids) > 0 and len(target_ids) > 1:
+        TOKENIZED_PAIRS.append((input_ids, target_ids))
+
+print(f"Tokenized {len(TOKENIZED_PAIRS)} samples")
+
+# =========================================================
+# STEP 2: Train SLM (Response Generation) — PERFECT NEXT-TOKEN LEARNING
 # =========================================================
 print("\n" + "=" * 70)
 print(f"STEP 2: Training SLM — {EPOCHS_SLM} epochs")
@@ -185,45 +206,71 @@ slm = AerisSLM(vocab_size=vocab_size, embed_dim=128, hidden_dim=256)
 trainer = SLMTrainer(slm, lr=LEARNING_RATE)
 slm_scheduler = CosineAnnealingLR(trainer.optimizer, T_max=EPOCHS_SLM, eta_min=1e-6)
 
-def make_slm_batch(pairs: List[Tuple], batch_size: int = 8):
-    """Create batched training data for SLM with dynamic padding"""
+# CRITICAL FIX: PERFECT make_slm_batch with proper next-token shift
+def make_slm_batch(pairs, batch_size=8):
+    """Create batched training data with role-aware formatting and proper next-token prediction"""
     batch_inputs, batch_targets = [], []
-    
-    for input_text, response in pairs:
-        ids = tokenizer.encode(input_text) + tokenizer.encode(response)
-        if len(ids) < 2:
+
+    for input_ids, target_ids in pairs:
+        # PERFECT FIX: Proper next-token learning with shift
+        # Input: all tokens (user + assistant prompt + response without last token)
+        # Target: shift by 1 (pads for user portion + response tokens shifted)
+        full_input = input_ids + target_ids[:-1]
+        full_target = ([0] * len(input_ids)) + target_ids[1:]
+
+        # Lengths now perfectly aligned
+        if len(full_input) < 2:
             continue
-        
-        batch_inputs.append(ids[:-1])
-        batch_targets.append(ids[1:])
-        
+
+        batch_inputs.append(full_input)
+        batch_targets.append(full_target)
+
         if len(batch_inputs) == batch_size:
-            # Dynamic padding to max length in batch
             max_len = max(len(x) for x in batch_inputs)
+
             padded_inputs = [x + [0] * (max_len - len(x)) for x in batch_inputs]
             padded_targets = [x + [0] * (max_len - len(x)) for x in batch_targets]
-            
+
             yield torch.tensor(padded_inputs), torch.tensor(padded_targets)
+
             batch_inputs, batch_targets = [], []
-    
-    # Yield remaining
+
     if batch_inputs:
         max_len = max(len(x) for x in batch_inputs)
+
         padded_inputs = [x + [0] * (max_len - len(x)) for x in batch_inputs]
         padded_targets = [x + [0] * (max_len - len(x)) for x in batch_targets]
+
         yield torch.tensor(padded_inputs), torch.tensor(padded_targets)
+
+# CRITICAL FIX 5: Mixed precision setup
+scaler = torch.cuda.amp.GradScaler() if torch.cuda.is_available() else None
 
 # ── STEP 2 training loop (improved with perplexity tracking) ──
 best_slm_loss    = float("inf")
 patience_counter = 0
 
 for epoch in range(1, EPOCHS_SLM + 1):
+    # CRITICAL FIX 2: Shuffle training data before each epoch
+    shuffled_pairs = TOKENIZED_PAIRS.copy()
+    random.shuffle(shuffled_pairs)
+    
     total_loss   = 0.0
     total_ppl    = 0.0
     num_batches  = 0
 
-    for inputs, targets in make_slm_batch(TRAINING_PAIRS):
-        result = trainer.train_step(inputs, targets)   # now returns a dict
+    for batch_idx, (inputs, targets) in enumerate(make_slm_batch(shuffled_pairs, batch_size=BATCH_SIZE)):
+        
+        if batch_idx % 50 == 0:
+            print(f"    Batch {batch_idx} running...")
+        
+        # CRITICAL FIX 5: Mixed precision training
+        if scaler and torch.cuda.is_available():
+            with torch.cuda.amp.autocast():
+                result = trainer.train_step(inputs, targets)
+        else:
+            result = trainer.train_step(inputs, targets)
+            
         total_loss  += result['loss']
         total_ppl   += result['perplexity']
         num_batches += 1
@@ -287,6 +334,11 @@ intent_counts = Counter([intent for _, intent in INTENT_TRAINING_DATA_AUG])
 total_samples = sum(intent_counts.values())
 num_classes   = len(INTENT_TO_IDX)
 
+# CRITICAL FIX 6: Print intent distribution
+print("\nIntent Distribution (before balancing):")
+for intent, count in sorted(intent_counts.items(), key=lambda x: -x[1]):
+    print(f"  {intent:22s}: {count:5d}")
+
 # Weight = total / (num_classes * class_count), capped
 class_weights = torch.zeros(num_classes)
 for intent, idx in INTENT_TO_IDX.items():
@@ -294,7 +346,7 @@ for intent, idx in INTENT_TO_IDX.items():
     weight = total_samples / (num_classes * count)
     class_weights[idx] = min(weight, 10.0)   # cap at 10× to prevent instability
 
-print(f"Class weights (top 5 most weighted):")
+print(f"\nClass weights (top 5 most weighted):")
 top_weights = sorted(
     [(w.item(), intent) for intent, w in zip(INTENT_TO_IDX.keys(), class_weights)],
     reverse=True
@@ -305,12 +357,12 @@ for w, intent in top_weights:
 # ------------------------------------------------------------------
 # 3c. Oversample minority classes to MIN_SAMPLES_PER_CLASS
 # ------------------------------------------------------------------
-MIN_SAMPLES_PER_CLASS = 150
+MIN_SAMPLES_PER_CLASS = 250
 
 augmented = list(INTENT_TRAINING_DATA_AUG)
 by_intent = defaultdict(list)
 for text, intent in augmented:
-    by_intent[intent].append((text, intent))
+        by_intent[intent].append((text, intent))
 
 oversampled = list(augmented)
 for intent, samples in by_intent.items():
@@ -319,7 +371,7 @@ for intent, samples in by_intent.items():
         extras  = random.choices(samples, k=deficit)
         oversampled.extend(extras)
 
-# 🔥 FIX 4: Extra boost for CHAT class
+# Extra boost for CHAT class
 chat_samples = [s for s in oversampled if s[1] == "CHAT"]
 
 if len(chat_samples) > 0:
@@ -335,7 +387,7 @@ for intent, count in sorted(counts_after.items(), key=lambda x: -x[1]):
     bar = "█" * int(pct / 2)
     print(f"  {intent:22s}: {count:5d} ({pct:4.1f}%) {bar}")
 
-# 🔥 FIX 5: Hard negative training examples
+# Hard negative training examples
 HARD_NEGATIVES = [
     ("can you open chrome", "OPEN_APP"),
     ("can you tell me something", "CHAT"),
@@ -355,7 +407,7 @@ if missing_in_model:
     raise ValueError("Intent label mismatch — fix INTENT_TO_IDX")
 
 # ------------------------------------------------------------------
-# 3d. Stratified split
+# 3d. Stratified split (CRITICAL FIX 8: Proper validation split)
 # ------------------------------------------------------------------
 def stratified_split(data, test_size=0.15, seed=42):
     rng = random.Random(seed)
@@ -372,7 +424,7 @@ def stratified_split(data, test_size=0.15, seed=42):
     rng.shuffle(val_data)
     return train_data, val_data
 
-train_data, val_data = stratified_split(oversampled, test_size=0.15)
+train_data, val_data = stratified_split(oversampled, test_size=VALIDATION_SPLIT)
 print(f"\nSplit: Train={len(train_data)} | Val={len(val_data)}")
 
 # ------------------------------------------------------------------
@@ -383,7 +435,7 @@ classifier = IntentClassifier(
     embed_dim=128,
     hidden_dim=256,
     num_heads=4,
-    dropout=0.3,         # slightly lower dropout with oversampling
+    dropout=0.3,
 )
 
 clf_optimizer = optim.AdamW(
@@ -399,7 +451,7 @@ clf_scheduler = CosineAnnealingLR(
 
 # Weighted CE + label smoothing
 clf_loss_fn = nn.CrossEntropyLoss(
-    weight=class_weights,    # ← KEY FIX: penalise misclassifying rare intents more
+    weight=class_weights,
     label_smoothing=0.1,
 )
 

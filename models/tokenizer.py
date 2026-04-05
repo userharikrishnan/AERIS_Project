@@ -10,7 +10,7 @@ class Tokenizer:
     
     Features:
     - Word-level tokenization with regex preprocessing
-    - Special token handling (<PAD>, <UNK>, <START>, <END>)
+    - Special token handling (<PAD>, <UNK>, <START>, <END>, <USER>, <ASSISTANT>, <EOS>)
     - Vocabulary management with frequency tracking
     - Serialization support for checkpointing
     - Case normalization and punctuation handling
@@ -21,7 +21,10 @@ class Tokenizer:
         '<UNK>': 1,
         '<START>': 2,
         '<END>': 3,
-        '<MASK>': 4
+        '<MASK>': 4,
+        '<USER>': 5,
+        '<ASSISTANT>': 6,
+        '<EOS>': 7
     }
     
     def __init__(self, max_vocab_size: int = 10000):
@@ -35,7 +38,7 @@ class Tokenizer:
             self.word2id[token] = idx
             self.id2word[idx] = token
         
-        self._compiled_regex = re.compile(r"\w+|[^\w\s]")
+        self._compiled_regex = re.compile(r"<[^>]+>|\w+|[^\w\s]")
         
     def train(self, texts: List[str], min_freq: int = 1):
         """
@@ -74,10 +77,10 @@ class Tokenizer:
         
     def _tokenize_text(self, text: str) -> List[str]:
         """Internal tokenization with preprocessing"""
-        # Normalize: lowercase, strip
-        text = text.lower().strip()
+        # Normalize: strip only (preserve special tokens case)
+        text = text.strip()
         
-        # Tokenize with regex
+        # Tokenize with regex that preserves special tokens
         tokens = self._compiled_regex.findall(text)
         
         # Filter empty and normalize
@@ -136,7 +139,7 @@ class Tokenizer:
         # Join with spaces, but handle punctuation properly
         text = ''
         for i, token in enumerate(tokens):
-            if i > 0 and not token[0].isalnum():
+            if i > 0 and token and not token[0].isalnum() and token[0] != '<':
                 # Punctuation - no space before
                 text += token
             else:
