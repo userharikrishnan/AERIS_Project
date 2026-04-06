@@ -57,12 +57,30 @@ class NLPProcessor:
     
     # Entity extraction patterns
     APP_PATTERN = re.compile(
-        r'(chrome|firefox|edge|safari|opera|brave|vscode|sublime|notepad\+\+?|'
+        r'(chrome|firefox|edge|safari|opera|brave|vscode|vs code|visual studio|sublime|notepad\+\+?|'
         r'vim|emacs|terminal|cmd|powershell|spotify|discord|slack|teams|zoom|'
         r'skype|steam|outlook|word|excel|powerpoint|calculator|camera|photos|'
-        r'settings|explorer|task manager|control panel)',
+        r'settings|explorer|file explorer|task manager|control panel|notepad|paint|vlc|'
+        r'brave browser|google chrome|microsoft edge|mozilla firefox)',
         re.IGNORECASE
     )
+
+    # Abbreviated / shorthand app name lookup
+    APP_ALIASES = {
+        'ed': 'edge', 'edg': 'edge', 'ms edge': 'edge', 'microsoft edge': 'edge',
+        'ch': 'chrome', 'chr': 'chrome', 'gc': 'chrome', 'google chrome': 'chrome',
+        'ff': 'firefox', 'fox': 'firefox', 'moz': 'firefox', 'mozilla': 'firefox',
+        'vs': 'vscode', 'vsc': 'vscode', 'code': 'vscode', 'vs code': 'vscode',
+        'ps': 'powershell', 'psh': 'powershell',
+        'spot': 'spotify', 'music': 'spotify',
+        'disc': 'discord',
+        'calc': 'calculator',
+        'np': 'notepad', 'notepad': 'notepad',
+        'fe': 'explorer', 'files': 'explorer', 'file explorer': 'explorer',
+        'word': 'word', 'excel': 'excel', 'ppt': 'powerpoint', 'powerpoint': 'powerpoint',
+        'teams': 'teams', 'zoom': 'zoom', 'slack': 'slack',
+        'steam': 'steam', 'task': 'task manager', 'taskmgr': 'task manager',
+    }
     
     URL_PATTERN = re.compile(
         r'((?:https?://)?(?:www\.)?[\w-]+\.(?:com|org|net|edu|gov|io|co|ai|'
@@ -109,10 +127,10 @@ class NLPProcessor:
                 
                 self.classifier = IntentClassifier(
                     vocab_size=vocab_size,
-                    embed_dim=128,
-                    hidden_dim=256,
+                    embed_dim=256,   # v2: upgraded from 128
+                    hidden_dim=512,  # v2: upgraded from 256
                     num_heads=4,
-                    dropout=0.0  # No dropout for inference
+                    dropout=0.0,     # No dropout at inference
                 )
                 
                 checkpoint = torch.load(CHECKPOINT_CLASSIFIER, map_location=self.device)
@@ -147,11 +165,11 @@ class NLPProcessor:
             "SYSTEM_INFO", "SCREENSHOT",
             "WEB_SCRAPE", "GENERATE_REPORT",
         }
-        if intent in ALWAYS_ACTION and confidence >= 0.5:
+        if intent in ALWAYS_ACTION and confidence >= 0.20:
             return "ACTION"
 
         # Low separation between top intents → model confused
-        if margin < 0.15:
+        if margin < 0.08:
             # If the top intent was CHAT, keep it. Otherwise it's an uncertain action.
             return "CHAT" if intent == "CHAT" else "ACTION"
 
@@ -160,7 +178,7 @@ class NLPProcessor:
             return "CHAT" if intent == "CHAT" else "ACTION"
 
         # Weak confidence → not actionable, needs clarification, but don't force 'CHAT'
-        if confidence < 0.4:
+        if confidence < 0.20:
             return "CHAT" if intent == "CHAT" else "ACTION"
 
         return "ACTION"
@@ -247,65 +265,223 @@ class NLPProcessor:
         
         return intent
     
+    # ---------------------------------------------------------------
+    # Rule-based pre-classifier patterns
+    # These catch the most common, unambiguous commands with ~0.97
+    # confidence WITHOUT touching the neural model.  Any match here
+    # short-circuits _classify() and returns immediately.
+    # ---------------------------------------------------------------
+    _RULE_OPEN = re.compile(
+        r'^(?:please\s+)?(?:open|launch|start|run|fire up|bring up)\s+(.+)$',
+        re.IGNORECASE
+    )
+    _RULE_CLOSE = re.compile(
+        r'^(?:please\s+)?(?:close|quit|exit|kill|shut down|terminate)\s+(.+)$',
+        re.IGNORECASE
+    )
+    _RULE_SEARCH = re.compile(
+        r'^(?:search(?:\s+(?:for|online|the web))?|google|look up|find me|find)\s+(.+)$',
+        re.IGNORECASE
+    )
+    _RULE_NAVIGATE = re.compile(
+        r'^(?:go to|navigate to|browse to|visit|open)\s+((?:https?://|www\.)\S+|\S+\.(?:com|org|net|io|co|ai|app|dev))\s*$',
+        re.IGNORECASE
+    )
+    _RULE_FILE_READ = re.compile(
+        r'^(?:read|show|display|open|load)\s+(?:the\s+)?(?:file\s+)?([\w\-]+\.\w{2,5})$',
+        re.IGNORECASE
+    )
+    _RULE_SCREENSHOT = re.compile(
+        r'^(?:take a?|capture a?)?\s*screenshot\b',
+        re.IGNORECASE
+    )
+    _RULE_MEM_STORE = re.compile(
+        r'^(?:remember|save|store|memorize|note)\s+(?:that\s+|this:\s*)?(.+)$',
+        re.IGNORECASE
+    )
+    _RULE_MEM_RECALL = re.compile(
+        r'^(?:what do you remember|recall|do you remember|what did i(?:\s+tell you)?(?:\s+about)?|remind me about)\b',
+        re.IGNORECASE
+    )
+    _RULE_SYSINFO = re.compile(
+        r'^(?:what(?:\'s| is) (?:my |the )?(?:cpu|ram|memory|disk|battery|ip|network|wifi|uptime)|'
+        r'show (?:me )?(?:system|cpu|ram|memory|disk|battery|network) (?:info|stats|usage|status))\b',
+        re.IGNORECASE
+    )
+    _RULE_IDENTITY = re.compile(
+        r'^(?:who are you|what are you|tell me about yourself|introduce yourself|what(?:\'s| is) your name|'
+        r'you are|aeris help|what can you do)\b',
+        re.IGNORECASE
+    )
+
+    def _rule_based_classify(self, text: str):
+        """
+        Fast regex pre-classifier.  Returns a ClassificationResult if the
+        command is unambiguous, otherwise returns None to fall through to
+        the neural model.
+
+        Confidence is set to 0.97 for full-word matches (0.89 for partial)
+        so the language engine always uses the template response.
+        """
+        t = text.strip().lower()
+
+        # --- OPEN_APP --------------------------------------------------
+        m = self._RULE_OPEN.match(t)
+        if m:
+            # Make sure it's not a URL (those go to WEB_NAVIGATE)
+            target = m.group(1).strip()
+            is_url = bool(re.search(
+                r'(?:https?://|www\.)|\.(com|org|net|io|co|ai|app|dev)$', target
+            ))
+            if not is_url:
+                return ClassificationResult(
+                    intent='OPEN_APP', confidence=0.97, uncertainty=0.03,
+                    margin=0.80,
+                    alternatives=[{'intent': 'WEB_NAVIGATE', 'probability': 0.02},
+                                  {'intent': 'CHAT', 'probability': 0.01}],
+                    is_uncertain=False
+                )
+
+        # --- CLOSE_APP -------------------------------------------------
+        m = self._RULE_CLOSE.match(t)
+        if m:
+            return ClassificationResult(
+                intent='CLOSE_APP', confidence=0.97, uncertainty=0.03,
+                margin=0.80,
+                alternatives=[{'intent': 'CHAT', 'probability': 0.03}],
+                is_uncertain=False
+            )
+
+        # --- WEB_NAVIGATE (URL present) --------------------------------
+        m = self._RULE_NAVIGATE.match(t)
+        if m:
+            return ClassificationResult(
+                intent='WEB_NAVIGATE', confidence=0.97, uncertainty=0.03,
+                margin=0.80,
+                alternatives=[{'intent': 'OPEN_APP', 'probability': 0.03}],
+                is_uncertain=False
+            )
+
+        # --- WEB_SEARCH ------------------------------------------------
+        m = self._RULE_SEARCH.match(t)
+        if m:
+            return ClassificationResult(
+                intent='WEB_SEARCH', confidence=0.97, uncertainty=0.03,
+                margin=0.80,
+                alternatives=[{'intent': 'CHAT', 'probability': 0.03}],
+                is_uncertain=False
+            )
+
+        # --- FILE_READ -------------------------------------------------
+        m = self._RULE_FILE_READ.match(t)
+        if m:
+            return ClassificationResult(
+                intent='FILE_READ', confidence=0.93, uncertainty=0.07,
+                margin=0.70,
+                alternatives=[{'intent': 'OPEN_APP', 'probability': 0.07}],
+                is_uncertain=False
+            )
+
+        # --- SCREENSHOT ------------------------------------------------
+        if self._RULE_SCREENSHOT.match(t):
+            return ClassificationResult(
+                intent='SCREENSHOT', confidence=0.97, uncertainty=0.03,
+                margin=0.90,
+                alternatives=[{'intent': 'CHAT', 'probability': 0.03}],
+                is_uncertain=False
+            )
+
+        # --- MEMORY_STORE ----------------------------------------------
+        m = self._RULE_MEM_STORE.match(t)
+        if m:
+            return ClassificationResult(
+                intent='MEMORY_STORE', confidence=0.93, uncertainty=0.07,
+                margin=0.75,
+                alternatives=[{'intent': 'CHAT', 'probability': 0.07}],
+                is_uncertain=False
+            )
+
+        # --- MEMORY_RECALL ---------------------------------------------
+        if self._RULE_MEM_RECALL.match(t):
+            return ClassificationResult(
+                intent='MEMORY_RECALL', confidence=0.93, uncertainty=0.07,
+                margin=0.75,
+                alternatives=[{'intent': 'CHAT', 'probability': 0.07}],
+                is_uncertain=False
+            )
+
+        # --- SYSTEM_INFO -----------------------------------------------
+        if self._RULE_SYSINFO.match(t):
+            return ClassificationResult(
+                intent='SYSTEM_INFO', confidence=0.95, uncertainty=0.05,
+                margin=0.80,
+                alternatives=[{'intent': 'CHAT', 'probability': 0.05}],
+                is_uncertain=False
+            )
+
+        # --- IDENTITY_QUERY --------------------------------------------
+        if self._RULE_IDENTITY.match(t):
+            return ClassificationResult(
+                intent='IDENTITY_QUERY', confidence=0.97, uncertainty=0.03,
+                margin=0.90,
+                alternatives=[{'intent': 'CHAT', 'probability': 0.03}],
+                is_uncertain=False
+            )
+
+        return None  # no rule matched → fall through to neural model
+
     def _classify(self, text: str) -> ClassificationResult:
         """
-        Neural intent classification with confidence calibration
-        Includes heuristic fallback for classifier failures
-        
+        Intent classification:
+          1. Fast rule-based pre-classifier (regex — ~0.97 confidence)
+          2. Neural classifier (IntentClassifier) if rule doesn't match
+          3. Heuristic keyword fallback if classifier is unavailable
+
         Args:
             text: Cleaned input text
-            
+
         Returns:
             ClassificationResult with detailed information
         """
+        # ── 1. Rule-based fast path ───────────────────────────────────
+        rule_result = self._rule_based_classify(text)
+        if rule_result is not None:
+            return rule_result
+
+        # ── 2. Neural classifier ─────────────────────────────────────
         if self.classifier is None:
             # Heuristic fallback when classifier is unavailable
             text_lower = text.lower()
-            if "open" in text_lower:
+            if 'open' in text_lower:
                 return ClassificationResult(
-                    intent="OPEN_APP",
-                    confidence=0.7,
-                    uncertainty=0.3,
-                    margin=0.4,
-                    alternatives=[{"intent": "CHAT", "confidence": 0.3}],
+                    intent='OPEN_APP', confidence=0.75, uncertainty=0.25,
+                    margin=0.5,
+                    alternatives=[{'intent': 'CHAT', 'confidence': 0.25}],
                     is_uncertain=False
                 )
-            if "search" in text_lower:
+            if 'search' in text_lower:
                 return ClassificationResult(
-                    intent="WEB_SEARCH",
-                    confidence=0.7,
-                    uncertainty=0.3,
-                    margin=0.4,
-                    alternatives=[{"intent": "CHAT", "confidence": 0.3}],
+                    intent='WEB_SEARCH', confidence=0.75, uncertainty=0.25,
+                    margin=0.5,
+                    alternatives=[{'intent': 'CHAT', 'confidence': 0.25}],
                     is_uncertain=False
                 )
             return ClassificationResult(
-                intent="CHAT",
-                confidence=0.0,
-                uncertainty=1.0,
-                margin=0.0,
-                alternatives=[],
-                is_uncertain=True
+                intent='CHAT', confidence=0.0, uncertainty=1.0,
+                margin=0.0, alternatives=[], is_uncertain=True
             )
-        
+
         token_ids = self.tokenizer.encode(text)
         if not token_ids:
             return ClassificationResult(
-                intent="CHAT",
-                confidence=0.0,
-                uncertainty=1.0,
-                margin=0.0,
-                alternatives=[],
-                is_uncertain=True
+                intent='CHAT', confidence=0.0, uncertainty=1.0,
+                margin=0.0, alternatives=[], is_uncertain=True
             )
-        
-        # Prepare input
+
         input_tensor = torch.tensor([token_ids], device=self.device)
-        
-        # Get detailed prediction
         with torch.no_grad():
             result = self.classifier.predict_with_confidence(input_tensor)
-        
+
         return ClassificationResult(
             intent=result['intent'],
             confidence=result['confidence'],
@@ -330,13 +506,13 @@ class NLPProcessor:
         entities = {}
         
         # APP_OPEN / APP_CLOSE
-        if intent_type in {"OPEN_APP", "CLOSE_APP"}:
-            # Try regex pattern first
+        if intent_type in {'OPEN_APP', 'CLOSE_APP'}:
+            # 1. Try full app name regex first
             match = self.APP_PATTERN.search(raw_text)
             if match:
                 entities['app'] = match.group(1).lower()
             else:
-                # Fallback: remove intent keywords
+                # 2. Strip verb/filler words to isolate the app name
                 app = re.sub(
                     r'\b(open|launch|start|run|bring up|fire up|close|exit|quit|'
                     r'terminate|stop|kill|the|app|application|please|can you|'
@@ -345,7 +521,10 @@ class NLPProcessor:
                     text,
                     flags=re.IGNORECASE
                 ).strip()
-                entities['app'] = app if app else 'unknown'
+                # 3. Resolve abbreviations / aliases
+                app_lower = app.lower()
+                resolved = self.APP_ALIASES.get(app_lower, app_lower)
+                entities['app'] = resolved if resolved else 'unknown'
         
         # WEB_SEARCH
         elif intent_type == "WEB_SEARCH":

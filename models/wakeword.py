@@ -83,4 +83,4 @@ class WakeWordDetector:
             output = self.model(features)
             confidence = output.item()
             
-        return confidence > 0.8  # Strong threshold for waking up
+        return confidence > 0.55  # Lowered from 0.8 — MLP trained on 15 samples can't reliably exceed 0.8

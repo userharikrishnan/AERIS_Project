@@ -15,7 +15,11 @@ class Planner:
         # -------------------------
         # Confidence check
         # -------------------------
-        if hasattr(intent, 'confidence') and intent.confidence < 0.4:
+        # Only clarify if BOTH confidence is very low AND margin is weak
+        # (high margin = classifier is sure even with low absolute confidence)
+        low_conf   = hasattr(intent, 'confidence') and intent.confidence < 0.18
+        low_margin = hasattr(intent, 'margin') and intent.margin < 0.08
+        if low_conf and low_margin:
             return [{
                 "step": 1,
                 "action": "clarify",

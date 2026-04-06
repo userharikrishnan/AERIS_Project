@@ -1,69 +1,87 @@
+"""
+AERIS Production Tokenizer — v2.0
+Upgraded for 15k+ training pairs with 32k vocabulary.
+
+Features:
+- Word-level tokenization with regex preprocessing
+- Special token handling (<PAD>, <UNK>, <START>, <END>, <USER>, <ASSISTANT>, <EOS>, <MASK>, <SEP>)
+- 32,000 vocabulary ceiling to cover 15k+ diverse training pairs
+- Frequency-based vocabulary pruning with min_freq support
+- Batch encoding with padding/truncation and attention masks
+- Serialization / deserialization (JSON)
+- __contains__ for fast OOV checking
+- encode_with_offsets() for attention visualization
+- pad_to_length() and truncate() helpers
+- n-gram decode with proper punctuation attachment
+"""
+
 import re
 import json
 from collections import defaultdict
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional, Union, Tuple
 
 
 class Tokenizer:
     """
-    Production-grade tokenizer for AERIS SLM
-    
-    Features:
-    - Word-level tokenization with regex preprocessing
-    - Special token handling (<PAD>, <UNK>, <START>, <END>, <USER>, <ASSISTANT>, <EOS>)
-    - Vocabulary management with frequency tracking
-    - Serialization support for checkpointing
-    - Case normalization and punctuation handling
+    Production-grade tokenizer for AERIS SLM — supports 32k vocabulary.
+    Designed to handle 15k+ training pairs without OOV explosion.
     """
-    
+
     SPECIAL_TOKENS = {
-        '<PAD>': 0,
-        '<UNK>': 1,
-        '<START>': 2,
-        '<END>': 3,
-        '<MASK>': 4,
-        '<USER>': 5,
+        '<PAD>':       0,
+        '<UNK>':       1,
+        '<START>':     2,
+        '<END>':       3,
+        '<MASK>':      4,
+        '<USER>':      5,
         '<ASSISTANT>': 6,
-        '<EOS>': 7
+        '<EOS>':       7,
+        '<SEP>':       8,   # separator between multi-turn context
+        '<SYS>':       9,   # system prompt token (reserved for future use)
     }
-    
-    def __init__(self, max_vocab_size: int = 10000):
+
+    # Punctuation characters that should attach to the preceding word
+    _NO_SPACE_BEFORE = frozenset(".,!?;:')]}\"")
+
+    def __init__(self, max_vocab_size: int = 32000):
         self.word2id: Dict[str, int] = {}
         self.id2word: Dict[int, str] = {}
         self.word_freq: Dict[str, int] = defaultdict(int)
         self.max_vocab_size = max_vocab_size
-        
-        # Initialize special tokens
+
+        # Seed special tokens
         for token, idx in self.SPECIAL_TOKENS.items():
             self.word2id[token] = idx
             self.id2word[idx] = token
-        
-        self._compiled_regex = re.compile(r"<[^>]+>|\w+|[^\w\s]")
-        
+
+        # Regex: special tokens first (angle-bracket form), then word chars, then punctuation
+        self._compiled_regex = re.compile(r'<[^>]+>|\w+|[^\w\s]')
+
+    # ------------------------------------------------------------------
+    # Vocabulary building
+    # ------------------------------------------------------------------
+
     def train(self, texts: List[str], min_freq: int = 1):
         """
-        Build vocabulary from corpus with frequency filtering
-        
+        Build vocabulary from corpus with frequency filtering.
+
         Args:
-            texts: List of text strings to build vocabulary from
-            min_freq: Minimum word frequency to include in vocabulary
+            texts:    List of text strings (or individual tokens) to count.
+            min_freq: Minimum word frequency to include in the vocabulary.
         """
-        # Count frequencies
         for text in texts:
             if not isinstance(text, str):
                 continue
-            words = self._tokenize_text(text)
-            for word in words:
+            for word in self._tokenize_text(text):
                 self.word_freq[word] += 1
-        
-        # Sort by frequency (descending) and filter
+
+        # Sort by frequency descending, then alphabetically for ties (deterministic)
         sorted_words = sorted(
-            self.word_freq.items(),
-            key=lambda x: (-x[1], x[0])
+            ((freq, word) for word, freq in self.word_freq.items()),
+            key=lambda x: (-x[0], x[1])
         )
-        
-        # Add to vocabulary (respecting max_vocab_size and min_freq)
-        for word, freq in sorted_words:
+
+        for freq, word in sorted_words:
             if len(self.word2id) >= self.max_vocab_size:
                 break
             if freq < min_freq:
@@ -72,156 +90,241 @@ class Tokenizer:
                 idx = len(self.word2id)
                 self.word2id[word] = idx
                 self.id2word[idx] = word
-        
-        print(f"[Tokenizer] Vocabulary size: {len(self.word2id)} (trained on {len(texts)} texts)")
-        
+
+        print(
+            f"[Tokenizer] Vocabulary built: {len(self.word2id):,} tokens "
+            f"(trained on {len(texts):,} texts, min_freq={min_freq})"
+        )
+
+    # ------------------------------------------------------------------
+    # Core tokenisation
+    # ------------------------------------------------------------------
+
     def _tokenize_text(self, text: str) -> List[str]:
-        """Internal tokenization with preprocessing"""
-        # Normalize: strip only (preserve special tokens case)
+        """Internal regex tokenizer. Preserves special <TOKEN> forms unchanged."""
         text = text.strip()
-        
-        # Tokenize with regex that preserves special tokens
         tokens = self._compiled_regex.findall(text)
-        
-        # Filter empty and normalize
-        tokens = [t for t in tokens if t.strip()]
-        
-        return tokens
-    
-    def encode(self, text: Union[str, List[str]], add_special_tokens: bool = False) -> List[int]:
+        return [t for t in tokens if t.strip()]
+
+    # ------------------------------------------------------------------
+    # Encoding
+    # ------------------------------------------------------------------
+
+    def encode(
+        self,
+        text: Union[str, List[str]],
+        add_special_tokens: bool = False,
+        max_length: Optional[int] = None,
+    ) -> List[int]:
         """
-        Encode text to token IDs
-        
+        Encode text to token IDs.
+
         Args:
-            text: String or list of strings to encode
-            add_special_tokens: Whether to add <START> and <END> tokens
-            
+            text:               String or list of strings.
+            add_special_tokens: Prepend <START> and append <END>.
+            max_length:         Truncate result to this length.
+
         Returns:
-            List of token IDs
+            List of integer token IDs.
         """
         if isinstance(text, list):
-            # Encode list as single sequence
             text = ' '.join(str(t) for t in text)
-        
+
         tokens = self._tokenize_text(text)
-        
-        ids = []
+
+        ids: List[int] = []
         if add_special_tokens:
             ids.append(self.SPECIAL_TOKENS['<START>'])
-        
+
+        unk_id = self.SPECIAL_TOKENS['<UNK>']
         for token in tokens:
-            ids.append(self.word2id.get(token, self.SPECIAL_TOKENS['<UNK>']))
-        
+            ids.append(self.word2id.get(token, unk_id))
+
         if add_special_tokens:
             ids.append(self.SPECIAL_TOKENS['<END>'])
-        
+
+        if max_length is not None:
+            ids = ids[:max_length]
+
         return ids
-    
-    def decode(self, ids: List[int], skip_special_tokens: bool = True) -> str:
+
+    def encode_with_offsets(self, text: str) -> Tuple[List[int], List[str]]:
         """
-        Decode token IDs to text
-        
-        Args:
-            ids: List of token IDs
-            skip_special_tokens: Whether to remove special tokens
-            
+        Encode text and return both IDs and the corresponding surface tokens.
+        Useful for attention visualization overlaid on the original tokens.
+
         Returns:
-            Decoded text string
+            (ids, tokens) — parallel lists.
         """
-        tokens = []
-        for idx in ids:
-            if idx in self.id2word:
-                token = self.id2word[idx]
-                if skip_special_tokens and token in self.SPECIAL_TOKENS:
-                    continue
-                tokens.append(token)
-        
-        # Join with spaces, but handle punctuation properly
-        text = ''
-        for i, token in enumerate(tokens):
-            if i > 0 and token and not token[0].isalnum() and token[0] != '<':
-                # Punctuation - no space before
-                text += token
-            else:
-                if i > 0:
-                    text += ' '
-                text += token
-        
-        return text
-    
-    def encode_batch(self, texts: List[str], max_length: Optional[int] = None, 
-                     padding: bool = True, truncation: bool = True) -> Dict[str, List]:
+        tokens = self._tokenize_text(text)
+        unk_id = self.SPECIAL_TOKENS['<UNK>']
+        ids = [self.word2id.get(t, unk_id) for t in tokens]
+        return ids, tokens
+
+    def encode_batch(
+        self,
+        texts: List[str],
+        max_length: Optional[int] = None,
+        padding: bool = True,
+        truncation: bool = True,
+    ) -> Dict[str, List]:
         """
-        Batch encoding with padding and truncation
-        
-        Returns dict with 'input_ids' and 'attention_mask'
+        Batch encode with optional padding and truncation.
+
+        Returns dict with 'input_ids' and 'attention_mask'.
         """
-        batch_ids = []
+        batch_ids: List[List[int]] = []
+
         for text in texts:
             ids = self.encode(text)
-            
             if truncation and max_length and len(ids) > max_length:
                 ids = ids[:max_length]
-            
             batch_ids.append(ids)
-        
-        if padding and max_length:
-            # Pad to max_length
-            for ids in batch_ids:
-                while len(ids) < max_length:
-                    ids.append(self.SPECIAL_TOKENS['<PAD>'])
-        
-        # Create attention masks
-        attention_masks = []
-        for ids in batch_ids:
-            mask = [1 if id != self.SPECIAL_TOKENS['<PAD>'] else 0 for id in ids]
-            attention_masks.append(mask)
-        
+
+        if padding:
+            if max_length:
+                target_len = max_length
+            elif batch_ids:
+                target_len = max(len(ids) for ids in batch_ids)
+            else:
+                target_len = 0
+
+            pad_id = self.SPECIAL_TOKENS['<PAD>']
+            batch_ids = [
+                ids + [pad_id] * (target_len - len(ids))
+                for ids in batch_ids
+            ]
+
+        pad_id = self.SPECIAL_TOKENS['<PAD>']
+        attention_masks = [
+            [1 if tok != pad_id else 0 for tok in ids]
+            for ids in batch_ids
+        ]
+
         return {
             'input_ids': batch_ids,
-            'attention_mask': attention_masks
+            'attention_mask': attention_masks,
         }
-    
+
+    # ------------------------------------------------------------------
+    # Decoding
+    # ------------------------------------------------------------------
+
+    def decode(self, ids: List[int], skip_special_tokens: bool = True) -> str:
+        """
+        Decode token IDs back to text with clean punctuation attachment.
+
+        Args:
+            ids:                  List of integer token IDs.
+            skip_special_tokens:  Strip special tokens from output.
+
+        Returns:
+            Reconstructed text string.
+        """
+        tokens: List[str] = []
+        special_set = set(self.SPECIAL_TOKENS.keys())
+
+        for idx in ids:
+            token = self.id2word.get(idx)
+            if token is None:
+                continue
+            if skip_special_tokens and token in special_set:
+                continue
+            tokens.append(token)
+
+        if not tokens:
+            return ''
+
+        # Smart join: no space before punctuation
+        result_parts: List[str] = [tokens[0]]
+        for token in tokens[1:]:
+            if token and token[0] in self._NO_SPACE_BEFORE:
+                result_parts.append(token)           # attach directly
+            else:
+                result_parts.append(' ' + token)
+
+        return ''.join(result_parts).strip()
+
+    # ------------------------------------------------------------------
+    # Padding / Truncation helpers
+    # ------------------------------------------------------------------
+
+    def pad_to_length(self, ids: List[int], length: int) -> List[int]:
+        """Right-pad ids with <PAD> to reach `length`. Truncates if longer."""
+        pad_id = self.SPECIAL_TOKENS['<PAD>']
+        if len(ids) >= length:
+            return ids[:length]
+        return ids + [pad_id] * (length - len(ids))
+
+    def truncate(self, ids: List[int], max_length: int) -> List[int]:
+        """Truncate ids to at most `max_length` tokens."""
+        return ids[:max_length]
+
+    # ------------------------------------------------------------------
+    # Membership test
+    # ------------------------------------------------------------------
+
+    def __contains__(self, token: str) -> bool:
+        """Check if a token is in the vocabulary (not OOV)."""
+        return token in self.word2id
+
+    # ------------------------------------------------------------------
+    # Serialization
+    # ------------------------------------------------------------------
+
     def save(self, path: str):
-        """Save tokenizer to JSON"""
+        """Persist vocabulary to JSON for checkpoint restoration."""
         data = {
-            'word2id': self.word2id,
-            'word_freq': dict(self.word_freq),
+            'version':        '2.0',
             'max_vocab_size': self.max_vocab_size,
-            'special_tokens': self.SPECIAL_TOKENS
+            'word2id':        self.word2id,
+            'word_freq':      dict(self.word_freq),
+            'special_tokens': self.SPECIAL_TOKENS,
         }
         with open(path, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-    
+        print(f"[Tokenizer] Saved: {path} ({len(self.word2id):,} tokens)")
+
     def load(self, path: str):
+        """Restore vocabulary from a JSON checkpoint."""
         with open(path, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
-        word2id = data.get("word2id", {})
+        raw_word2id = data.get('word2id', {})
 
-        clean_word2id = {}
-
-        for k, v in word2id.items():
+        # Coerce values — older checkpoints may store strings or dicts
+        clean_word2id: Dict[str, int] = {}
+        for k, v in raw_word2id.items():
             if isinstance(v, int):
                 clean_word2id[k] = v
             elif isinstance(v, str):
                 try:
                     clean_word2id[k] = int(v)
-                except:
+                except ValueError:
                     continue
-            elif isinstance(v, dict) and "id" in v:
-                clean_word2id[k] = int(v["id"])
+            elif isinstance(v, dict) and 'id' in v:
+                clean_word2id[k] = int(v['id'])
 
-        self.word2id = clean_word2id
-        self.id2word = {v: k for k, v in clean_word2id.items()}
-        self.word_freq = defaultdict(int, data.get('word_freq', {}))
-        self.max_vocab_size = data.get('max_vocab_size', 10000)
+        self.word2id        = clean_word2id
+        self.id2word        = {v: k for k, v in clean_word2id.items()}
+        self.word_freq      = defaultdict(int, data.get('word_freq', {}))
+        self.max_vocab_size = data.get('max_vocab_size', 32000)
 
-        print(f"[Tokenizer] Loaded vocabulary: {len(self.word2id)} words")
-    
+        print(f"[Tokenizer] Loaded: {path} ({len(self.word2id):,} tokens)")
+
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
+
     @property
     def vocab_size(self) -> int:
         return len(self.word2id)
-    
+
     def __len__(self) -> int:
         return len(self.word2id)
+
+    def __repr__(self) -> str:
+        return (
+            f"Tokenizer(vocab_size={self.vocab_size:,}, "
+            f"max_vocab_size={self.max_vocab_size:,})"
+        )

@@ -242,11 +242,12 @@ def process_input(payload: dict, request: Request):
                 "session_id": session_id[:8]
             }
             
-        if not reasoning_result.response or reasoning_result.confidence < 0.4:
+        # Only short-circuit if reasoning completely failed (no plan at all)
+        if not reasoning_result.plan:
             return {
-                "response": reasoning_result.response or "Action planned",
-                "confidence": reasoning_result.confidence,
-                "plan": reasoning_result.plan
+                "mode": "chat",
+                "response": reasoning_result.response or "I couldn't form a plan for that.",
+                "confidence": reasoning_result.confidence
             }
 
         # 4. Memory with rich context
@@ -289,6 +290,18 @@ def process_input(payload: dict, request: Request):
             "clarify", "goal_list", "active_window", "list_windows",
         }
 
+        # Low-risk actions that ALWAYS execute immediately without any
+        # confirmation prompt (first-time or repeat). These are non-destructive
+        # and the user expects instant execution.
+        AUTO_EXECUTE_ACTIONS = {
+            "open_app", "close_app", "launch_app", "launch", "open",
+            "web_search", "web_navigate", "browse",
+            "screenshot", "screen_capture", "system_info",
+            "file_read", "file_list",
+            "memory_store", "memory_recall",
+            "generate_report", "web_scrape",
+        }
+
         if action_name in BYPASS_ACTIONS:
             # Always use template-based response for non-destructive actions
             # SLM output quality is unreliable for short operational phrases
@@ -302,6 +315,34 @@ def process_input(payload: dict, request: Request):
             return {
                 "mode": "chat",
                 "response": response or "How can I help?",
+                "confidence": reasoning_result.confidence,
+                "session_id": session_id[:8]
+            }
+
+        # ── AUTO-EXECUTE low-risk actions immediately ──────────────────
+        if action_name in AUTO_EXECUTE_ACTIONS:
+            exec_result = _plan_executor.execute_plan(
+                reasoning_result.plan,
+                initial_context={"session_id": session_id, "original_text": text}
+            )
+            # Record approval so next call is also auto-approved
+            _smart_confirmation.record_approval(action_name, action_params)
+
+            response = reasoning.language_engine.generate_from_text(
+                original_text=text,
+                intent_type=intent_type,
+                confidence=reasoning_result.confidence,
+                entities=nlp_output.entities
+            )
+            _session_engine.record_turn(text, intent_type, response or "", action_name, entities=nlp_output.entities)
+
+            result_summary = exec_result.to_summary() if hasattr(exec_result, "to_summary") else {}
+            return {
+                "mode": "executed",
+                "response": response or f"Done — {action_name.replace('_', ' ')}.",
+                "intent": intent_type,
+                "action": action_name,
+                "execution": result_summary,
                 "confidence": reasoning_result.confidence,
                 "session_id": session_id[:8]
             }

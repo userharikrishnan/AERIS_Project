@@ -49,13 +49,25 @@ class CommandEngine:
             }
 
         # Validate action using SymbolRegistry
-        symbol = self.registry.resolve(current_step["action"])
+        # The registry uses INTENT-style keys (e.g. "OPEN_APP") but the planner
+        # emits action-style strings (e.g. "open_app").  Try both.
+        action_name = current_step["action"]
+        symbol = (
+            self.registry.resolve(action_name)                     # exact match
+            or self.registry.resolve(action_name.upper())           # OPEN_APP style
+            or self.registry.resolve(
+                action_name.replace("_", " ").title().replace(" ", "_")  # Open_App style
+            )
+        )
+
+        # If no symbol found in registry, check if tool_dispatcher can handle it
+        # directly (some tools are not listed in SymbolRegistry)
         if not symbol:
-            return {
-                "action": "respond",
-                "params": {"message": "Unsupported action"},
-                "sensitivity": ActionSensitivity.LOW
-            }
+            # Build a lightweight stand-in so execution continues
+            from services.trust_models import ActionSensitivity
+            class _StandIn:
+                sensitivity = ActionSensitivity.LOW
+            symbol = _StandIn()
         # Context-aware vision grounding - attach UI candidates for specific actions
         if current_step["action"] in {"click", "open_app", "submit"}:
             visual_state, ui_elements = self.vision.perceive_with_ui()

@@ -46,9 +46,16 @@ class ReasoningEngine:
         self.scorer = NeuralScorer()
         self.verifier = Verifier()
 
-        # Language components
+        # Language components — dims match train.py v2 (loaded by LanguageEngine)
         self.tokenizer = Tokenizer()
-        self.model = AerisSLM(vocab_size=1000)
+        self.model = AerisSLM(
+            vocab_size  = 1000,   # placeholder; LanguageEngine reloads from checkpoint
+            embed_dim   = 384,
+            num_layers  = 6,
+            num_heads   = 6,
+            ffn_dim     = 1536,
+            dropout     = 0.0,
+        )
         self.language_engine = LanguageEngine(self.model, self.tokenizer)
 
         # 👁 Vision
@@ -151,8 +158,11 @@ class ReasoningEngine:
                 if success_rate < 0.5:
                     confidence *= (0.5 + success_rate)
 
-        # Pre-execution risk check (Restored strict ML confidence bounds)
-        if confidence < 0.4:
+        # Pre-execution risk check — only block on truly abysmal scores
+        # Speech-to-text input naturally lowers confidence; margin matters more
+        low_conf   = confidence < 0.15
+        low_margin = getattr(intent, 'margin', 1.0) < 0.08
+        if low_conf and low_margin:
             trace = {
                 "intent": intent.type,
                 "confidence": confidence,
@@ -168,56 +178,27 @@ class ReasoningEngine:
                 visual_state=visual_state,
                 identity_signal=identity_signal,
                 needs_clarification=True,
-                clarification_question="Can you tell me more specifically?",
+                clarification_question="Can you clarify that for me?",
                 trace=trace
             )
 
-        # Smarter clarification trigger based on uncertainty and alternatives
-        uncertainty = getattr(intent, 'uncertainty', 0.0)
-        alternatives = getattr(intent, 'alternatives', [])
-
-        if verified and (
-            confidence < 0.5 or
-            (confidence < 0.7 and uncertainty > 0.5) or
-            (confidence < 0.6 and len(alternatives) > 2)
-        ):
-            question = self.clarifier.generate(
-                intent_type=intent.type,
-                capability=capability
-            )
-            return ReasoningResult(
-                plan=plan,
-                confidence=confidence,
-                verified=verified,
-                response=None,
-                visual_state=visual_state,
-                identity_signal=identity_signal,
-                needs_clarification=True,
-                clarification_question=question,
-                trace={
-                    "intent": intent.type,
-                    "confidence": confidence,
-                    "alternatives": getattr(intent, 'alternatives', []),
-                    "plan": plan
-                }
-            )
+        # Removed aggressive second clarification gate — it was blocking
+        # all speech commands with natural confidence variance.
+        # Clarification now only triggers at the first gate (conf < 0.15 + low margin).
 
         response = None
 
         if intent.type == "VISION_QUERY" and visual_state:
             response = self._describe_visual_state(visual_state)
-        elif verified and confidence > 0.3:
-            # ✅ Pass original natural language text — not plan syntax
+        elif verified and confidence > 0.12:
             response = self.language_engine.generate_from_text(
                 original_text=original_text,
                 intent_type=intent.type,
                 confidence=confidence
             )
-            
-            # Response constraint layer - prevents garbage outputs
             if response:
                 if len(response.split()) < 3:
-                    response = f"Executing {intent.type.lower().replace('_', ' ')} action."
+                    response = f"On it — {intent.type.lower().replace('_', ' ')}."
 
         # Build reasoning trace for debugging and explainability
         trace = {
